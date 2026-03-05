@@ -1,0 +1,38 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  password  String
+  devices   Device[]
+  createdAt DateTime @default(now())
+}
+
+model Device {
+  id           String      @id // Use the Device ID from MQTT (e.g., DEV-001)
+  name         String
+  location     String?
+  ownerId      String
+  owner        User        @relation(fields: [ownerId], references: [id])
+  telemetries  Telemetry[]
+  createdAt    DateTime    @default(now())
+}
+
+model Telemetry {
+  id        BigInt   @id @default(autoincrement())
+  deviceId  String
+  device    Device   @relation(fields: [deviceId], references: [id])
+  timestamp DateTime @default(now())
+  
+  // Storing the metrics as JSONB for flexibility (Min/Max/Avg)
+  data      Json
+  
+  @@index([deviceId, timestamp]) // Requirement for fast solar time-series queries
+}
