@@ -12,8 +12,10 @@ async function bootstrap() {
   // 1. Initialize with Fastify Adapter
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter({ logger: true }) // Fastify's built-in logger
+    new FastifyAdapter({ logger: true })
   );
+
+  app.enableShutdownHooks();
 
   // This connects NestJS to your local Mosquitto Broker
   app.connectMicroservice({
@@ -21,6 +23,8 @@ async function bootstrap() {
     options: {
       url: process.env.MQTT_URL || 'mqtt://localhost:1883',
     },
+  }, {
+    inheritAppConfig: true
   });
 
   await app.startAllMicroservices();

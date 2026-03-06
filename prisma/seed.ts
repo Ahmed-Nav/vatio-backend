@@ -1,7 +1,8 @@
 import { PrismaClient } from '@prisma/client';
 import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
-import 'dotenv/config'; // Ensure env vars are loaded
+import 'dotenv/config';
+import * as bcrypt from 'bcrypt';
 
 // 1. Initialize the Postgres Pool
 const connectionString = process.env.DATABASE_URL;
@@ -14,13 +15,15 @@ const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
 async function main() {
+    const hashedPassword = await bcrypt.hash('admin@123', 10);
+
     const user = await prisma.user.upsert({
         where: { email: 'admin@vatio.com' },
         update: {},
         create: {
             email: 'admin@vatio.com',
             name: 'Vatio Admin',
-            password: 'admin@123'
+            password: hashedPassword,
         },
     });
 

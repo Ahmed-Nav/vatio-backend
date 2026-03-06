@@ -11,6 +11,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     constructor() {
         // 1. Initialize the raw Postgres connection pool
         const connectionString = process.env.DATABASE_URL;
+        if (!connectionString) throw new Error('DATABASE_URL is not defined in .env');
         const pool = new Pool({ connectionString });
 
         // 2. Wrap it in the Prisma 7 adapter

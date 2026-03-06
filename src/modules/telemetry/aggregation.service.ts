@@ -1,35 +1,51 @@
-import { Injectable, Inject, OnModuleInit, Logger } from '@nestjs/common';
+import { Injectable, Inject, OnModuleInit, Logger, OnModuleDestroy } from '@nestjs/common';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from './redis.provider';
 import { TelemetryUpdate } from './interfaces/telemetry.interface';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { TelemetryGateway } from './telemetry.gateway';
 
 @Injectable()
-export class AggregationService implements OnModuleInit {
+export class AggregationService implements OnModuleInit, OnModuleDestroy {
     private readonly logger = new Logger(AggregationService.name);
     private readonly GROUP_NAME = 'vatio-aggregator';
     private readonly CONSUMER_NAME = 'worker-1';
+    private intervalRef: NodeJS.Timeout;
 
     constructor(
         @Inject(REDIS_CLIENT) private readonly redis: Redis,
-        private readonly prisma: PrismaService
+        private readonly prisma: PrismaService,
+        private readonly gateway: TelemetryGateway
     ) { }
 
     async onModuleInit() {
         // Tumbling window: flush every 5 seconds
-        console.log('Aggregation Loop Started!');
-        setInterval(() => this.processWindows(), 5000);
+        this.logger.log('Aggregation Loop Started!');
+        this.intervalRef = setInterval(() => this.processWindows(), 5000);
+    }
+
+    onModuleDestroy() {
+        if (this.intervalRef) {
+            clearInterval(this.intervalRef);
+            this.logger.log('Aggregation interval cleared safely.');
+        }
     }
 
     async processWindows() {
-        const streamKeys = await this.redis.keys(`vatio:stream:device:*`);
+        let cursor = '0';
+        do {
+            const [nextCursor, keys] = await this.redis.scan(
+                cursor,
+                'MATCH', 'vatio:stream:device:*',
+                'COUNT', 100
+            );
+            cursor = nextCursor;
 
-        for (const fullKey of streamKeys) {
-            const deviceId = fullKey.split(':').pop();
-            if (deviceId) {
-                await this.aggregateDeviceData(fullKey, deviceId);
+            for (const fullKey of keys) {
+                const deviceId = fullKey.split(':').pop();
+                if (deviceId) await this.aggregateDeviceData(fullKey, deviceId);
             }
-        }
+        } while (cursor !== '0');
     }
 
     private async aggregateDeviceData(fullKey: string, deviceId: string) {
@@ -57,9 +73,6 @@ export class AggregationService implements OnModuleInit {
                     if (!processedMetrics[key]) processedMetrics[key] = [];
                     processedMetrics[key].push(value as number);
                 }
-
-                // Requirement: XACK called after processing 
-                await this.redis.xack(fullKey, this.GROUP_NAME, id);
             }
 
             const update: TelemetryUpdate = {
@@ -70,8 +83,14 @@ export class AggregationService implements OnModuleInit {
 
             for (const [key, values] of Object.entries(processedMetrics)) {
                 update.metrics.avg[key] = values.reduce((a, b) => a + b, 0) / values.length;
-                update.metrics.min[key] = Math.min(...values);
-                update.metrics.max[key] = Math.max(...values);
+                update.metrics.min[key] = values.reduce((a, b) => Math.min(a, b));
+                update.metrics.max[key] = values.reduce((a, b) => Math.max(a, b));
+            }
+
+            const messageIds = messages.map(m => m[0]);
+            if (messageIds.length > 0) {
+                await this.redis.xack(fullKey, this.GROUP_NAME, ...messageIds);
+                this.logger.debug(`Batched XACK for ${messageIds.length} messages`);
             }
 
             await this.prisma.telemetry.create({
@@ -81,6 +100,7 @@ export class AggregationService implements OnModuleInit {
                     data: update.metrics // Prisma automatically handles the JSON conversion
                 }
             });
+            this.gateway.sendUpdate(deviceId, update);
 
             this.logger.log(`Aggregated & Saved ${messages.length} msgs for ${deviceId} to DB`);
 

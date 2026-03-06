@@ -3,6 +3,10 @@ import { TelemetryService } from './telemetry.service';
 import { RedisProvider } from './redis.provider';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { AggregationService } from './aggregation.service';
+import { TelemetryGateway } from './telemetry.gateway';
+import { TelemetryController } from './telemetry.controller';
+import { WsJwtGuard } from '../auth/guards/ws-jwt.guard';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
@@ -15,9 +19,10 @@ import { AggregationService } from './aggregation.service';
         },
       },
     ]),
+    AuthModule
   ],
-  providers: [RedisProvider, TelemetryService, AggregationService],
-  controllers: [TelemetryService],
+  providers: [RedisProvider, TelemetryService, AggregationService, TelemetryGateway, WsJwtGuard],
+  controllers: [TelemetryController],
   exports: [TelemetryService],
 })
 export class TelemetryModule { }
