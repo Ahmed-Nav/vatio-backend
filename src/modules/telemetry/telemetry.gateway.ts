@@ -23,7 +23,8 @@ export class TelemetryGateway implements OnGatewayConnection, OnGatewayDisconnec
     async handleConnection(client: Socket) {
         try {
             const token = client.handshake?.auth?.token ||
-                client.handshake?.headers?.authorization?.split(' ')[1];
+                client.handshake?.headers?.authorization?.split(' ')[1] ||
+                client.handshake?.query?.token as string;
 
             if (!token) {
                 throw new Error('No token provided');
@@ -48,8 +49,11 @@ export class TelemetryGateway implements OnGatewayConnection, OnGatewayDisconnec
         this.logger.log(`Client ${client.id} joined room: device_${deviceId}`);
     }
 
-    // This helper will be called by your Aggregator
+    // Called by the Aggregation Engine on every 5-second cycle
     sendUpdate(deviceId: string, data: any) {
-        this.server.to(`device_${deviceId}`).emit('telemetryUpdate', data);
+        // Emit to the device-specific room (clients who joined via 'joinDevice')
+        this.server.to(`device_${deviceId}`).emit('telemetry_update', data);
+        // Also broadcast to all connected clients in the namespace
+        this.server.emit('telemetry_update', data);
     }
 }

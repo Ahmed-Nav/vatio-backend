@@ -6,6 +6,11 @@ import { TelemetryModule } from './modules/telemetry/telemetry.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { getRedisConfig } from './config/redis.config';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { DeviceModule } from './modules/device/device.module';
+import { AlertModule } from './modules/alert/alert.module';
+import { APP_GUARD } from '@nestjs/core';
+import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 
 @Module({
   imports: [
@@ -14,9 +19,18 @@ import { getRedisConfig } from './config/redis.config';
     }),
     TelemetryModule,
     PrismaModule,
-    AuthModule
+    AuthModule,
+    AnalyticsModule,
+    DeviceModule,
+    AlertModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
+  ],
 })
 export class AppModule { }

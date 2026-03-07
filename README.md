@@ -1,98 +1,276 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# ⚡ Vatio IoT — Backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+> High-performance IoT telemetry platform built with NestJS, Fastify, Redis Streams, and PostgreSQL/TimescaleDB.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+[![NestJS](https://img.shields.io/badge/NestJS-11-E0234E?style=flat&logo=nestjs&logoColor=white)](https://nestjs.com/)
+[![Fastify](https://img.shields.io/badge/Fastify-5-000000?style=flat&logo=fastify&logoColor=white)](https://fastify.dev/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Neon-336791?style=flat&logo=postgresql&logoColor=white)](https://neon.tech/)
+[![Redis](https://img.shields.io/badge/Redis-Upstash-DC382D?style=flat&logo=redis&logoColor=white)](https://upstash.com/)
+[![Socket.IO](https://img.shields.io/badge/Socket.IO-4-010101?style=flat&logo=socket.io&logoColor=white)](https://socket.io/)
 
-## Description
+---
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Overview
 
-## Project setup
+Vatio IoT is a real-time IoT data platform designed for solar energy monitoring. It ingests telemetry data from IoT devices via MQTT, aggregates metrics in 5-second tumbling windows, and delivers real-time updates to connected clients over WebSocket.
 
-```bash
-$ pnpm install
+### Architecture
+
+```
+IoT Devices → MQTT Broker → NestJS Ingestion → Redis Streams
+                                                    ↓
+                                          Aggregation Engine (5s windows)
+                                                    ↓
+                                        ┌───────────┴───────────┐
+                                        ↓                       ↓
+                                  WebSocket Gateway      PostgreSQL/TimescaleDB
+                                  (real-time clients)    (historical storage)
 ```
 
-## Compile and run the project
+### Key Capabilities
+
+- **2,000 msg/s** target throughput via Redis Streams ingestion
+- **5-second aggregation windows** with Avg/Min/Max per metric
+- **Real-time WebSocket** telemetry on the `/telemetry` namespace
+- **JWT authentication** with 2-hour stateless tokens
+- **REST API** for device management, analytics, and alerts
+- **TimescaleDB** hypertable support with automatic 7-day compression
+- **Swagger/OpenAPI** docs at `/api/docs`
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| **Runtime** | Node.js with NestJS 11 |
+| **HTTP Server** | Fastify 5 (not Express) |
+| **Database** | PostgreSQL on Neon (with TimescaleDB support) |
+| **ORM** | Prisma 7 with `@prisma/adapter-pg` |
+| **Cache / Streams** | Redis (Upstash) via ioredis |
+| **Message Broker** | Mosquitto MQTT |
+| **Real-Time** | Socket.IO 4 via `@nestjs/websockets` |
+| **Auth** | JWT (Passport.js + `@nestjs/jwt`) |
+| **Queue** | BullMQ (Redis-backed) |
+| **Docs** | Swagger / OpenAPI |
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+- **Node.js** ≥ 18
+- **pnpm** (recommended) or npm
+- **Mosquitto** MQTT broker (local or remote)
+- **PostgreSQL** database (Neon or self-hosted)
+- **Redis** server (Upstash or self-hosted)
+
+### 1. Clone & Install
 
 ```bash
-# development
-$ pnpm run start
-
-# watch mode
-$ pnpm run start:dev
-
-# production mode
-$ pnpm run start:prod
+git clone <repository-url>
+cd vatio-backend
+pnpm install
 ```
 
-## Run tests
+### 2. Environment Setup
+
+Create a `.env` file in the project root (see `.env.example` for reference):
+
+```env
+# Server
+PORT=3000
+ALLOWED_ORIGINS=http://localhost:5173
+
+# JWT (min 32-character random string)
+JWT_SECRET=your_jwt_secret_here
+
+# Database (PostgreSQL connection string)
+DATABASE_URL=postgresql://user:pass@host/dbname?sslmode=require
+
+# MQTT
+MQTT_URL=mqtt://localhost:1883
+
+# Redis
+REDIS_HOST=your-redis-host
+REDIS_PORT=6379
+REDIS_PASSWORD=your_redis_password
+REDIS_TLS=true
+```
+
+> ⚠️ **Never commit `.env` to version control.** The `.gitignore` already excludes it.
+
+### 3. Database Setup
 
 ```bash
-# unit tests
-$ pnpm run test
+# Generate Prisma client
+npx prisma generate
 
-# e2e tests
-$ pnpm run test:e2e
+# Push schema to database
+npx prisma db push
 
-# test coverage
-$ pnpm run test:cov
+# Seed with test data (1 user + 2 devices + TimescaleDB setup)
+npx prisma db seed
 ```
 
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+### 4. Run
 
 ```bash
-$ pnpm install -g @nestjs/mau
-$ mau deploy
+# Development (with hot-reload)
+pnpm run start:dev
+
+# Production
+pnpm run build
+pnpm run start:prod
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+The server starts at `http://localhost:3000`.
 
-## Resources
+---
 
-Check out a few resources that may come in handy when working with NestJS:
+## API Documentation
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+Full API documentation is available at:
 
-## Support
+- **Swagger UI:** `http://localhost:3000/api/docs` (interactive)
+- **Markdown:** [API_DOCS.md](./API_DOCS.md) (offline reference)
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+### Quick Reference
 
-## Stay in touch
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `POST` | `/api/v1/auth/login` | ❌ | Login → `{ token, expiresAt }` |
+| `POST` | `/api/v1/auth/refresh` | ✅ | Refresh token |
+| `GET` | `/api/v1/devices` | ✅ | List user's devices |
+| `GET` | `/api/v1/devices/:id` | ✅ | Get device by ID |
+| `POST` | `/api/v1/devices` | ✅ | Register new device |
+| `PATCH` | `/api/v1/devices/:id` | ✅ | Update device metadata |
+| `DELETE` | `/api/v1/devices/:id` | ✅ | Unregister device |
+| `GET` | `/api/v1/analytics/history` | ✅ | Query historical telemetry |
+| `GET` | `/api/v1/alerts` | ✅ | Get active alerts |
+| `WS` | `/telemetry` | ✅ | Real-time telemetry stream |
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+---
+
+## Project Structure
+
+```
+vatio-backend/
+├── prisma/
+│   ├── schema.prisma          # Database schema (User, Device, Telemetry, Alert)
+│   └── seed.ts                # Test data + TimescaleDB setup
+├── src/
+│   ├── config/
+│   │   └── redis.config.ts    # Redis connection config
+│   ├── filters/
+│   │   └── http-exception.filter.ts  # Global error envelope { code, message, timestamp }
+│   ├── modules/
+│   │   ├── alert/             # GET /alerts
+│   │   ├── analytics/         # GET /analytics/history (time_bucket support)
+│   │   ├── auth/              # JWT login, refresh, guards, @Public() decorator
+│   │   ├── device/            # CRUD device endpoints
+│   │   └── telemetry/         # MQTT ingestion, Redis Streams, aggregation, WebSocket
+│   ├── prisma/
+│   │   ├── prisma.module.ts
+│   │   └── prisma.service.ts  # Prisma 7 with pg adapter
+│   ├── app.module.ts          # Root module (global JWT guard, all imports)
+│   └── main.ts                # Bootstrap (Fastify, CORS, Swagger, filters)
+├── API_DOCS.md                # Complete API documentation
+├── .env                       # Environment variables (not committed)
+├── package.json
+└── tsconfig.json
+```
+
+---
+
+## Data Pipeline
+
+### 1. Ingestion (T-02)
+
+IoT devices publish telemetry via MQTT to `vatio/devices/{deviceId}/telemetry`. The `TelemetryController` captures each message and writes it to a Redis Stream:
+
+```
+Stream Key: vatio:stream:device:{deviceId}
+MAXLEN: ~100,000 (approximate trimming)
+```
+
+### 2. Aggregation (T-03)
+
+Every 5 seconds, the `AggregationService`:
+1. Reads pending messages via `XREADGROUP` (consumer group: `vatio-aggregator`)
+2. Computes **Avg/Min/Max** per metric key
+3. ACKs processed messages
+4. Persists the aggregated result to PostgreSQL
+5. Emits `telemetry_update` to WebSocket clients
+
+### 3. Storage (T-04)
+
+Aggregated telemetry is stored in the `Telemetry` table with JSONB `data` column. When TimescaleDB is available, the table is converted to a **hypertable** partitioned by `timestamp` with automatic compression after 7 days.
+
+### 4. Delivery (T-07)
+
+Connected WebSocket clients on the `/telemetry` namespace receive `telemetry_update` events every 5 seconds with the latest aggregated metrics.
+
+---
+
+## Authentication
+
+- **Algorithm:** HS256
+- **Expiry:** 2 hours
+- **Payload:** `{ sub: userId, email, role }`
+- **Strategy:** Stateless JWT via Passport.js
+- **Global guard:** All routes protected by default; use `@Public()` to opt out
+- **WebSocket:** Token validated on connection (supports auth object, header, and query param)
+
+---
+
+## Testing
+
+```bash
+# Unit tests
+pnpm test
+
+# Watch mode
+pnpm test:watch
+
+# Coverage
+pnpm test:cov
+
+# E2E tests
+pnpm test:e2e
+```
+
+---
+
+## Seed Data
+
+After running `npx prisma db seed`, the following test data is created:
+
+| Entity | Details |
+|--------|---------|
+| **User** | `admin@vatio.com` / `admin@123` (role: `user`) |
+| **Device 1** | `DEV-001` — Solar Panel Array A, Rooftop A |
+| **Device 2** | `DEV-002` — Solar Panel Array B, Rooftop B |
+
+---
+
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `PORT` | ❌ | Server port (default: `3000`) |
+| `ALLOWED_ORIGINS` | ❌ | Comma-separated CORS origins |
+| `JWT_SECRET` | ✅ | JWT signing secret (min 32 chars) |
+| `DATABASE_URL` | ✅ | PostgreSQL connection string |
+| `MQTT_URL` | ❌ | MQTT broker URL (default: `mqtt://localhost:1883`) |
+| `REDIS_HOST` | ✅ | Redis host |
+| `REDIS_PORT` | ❌ | Redis port (default: `6379`) |
+| `REDIS_PASSWORD` | ✅ | Redis password |
+| `REDIS_TLS` | ❌ | Enable TLS for Redis (`true`/`false`) |
+
+---
 
 ## License
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+UNLICENSED — Private project.

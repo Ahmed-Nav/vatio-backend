@@ -11,6 +11,7 @@ model User {
   email     String   @unique
   name      String?
   password  String
+  role      String   @default("user")
   devices   Device[]
   createdAt DateTime @default(now())
 }
@@ -19,10 +20,18 @@ model Device {
   id           String      @id // Use the Device ID from MQTT (e.g., DEV-001)
   name         String
   location     String?
+  type         String?
+  status       String      @default("active")
+  hwVersion    String?     @map("hw_version")
+  fwVersion    String?     @map("fw_version")
+  lastSeen     DateTime?   @map("last_seen")
   ownerId      String
   owner        User        @relation(fields: [ownerId], references: [id])
   telemetries  Telemetry[]
+  alerts       Alert[]
   createdAt    DateTime    @default(now())
+
+  @@index([lastSeen])
 }
 
 model Telemetry {
@@ -30,9 +39,23 @@ model Telemetry {
   deviceId  String
   device    Device   @relation(fields: [deviceId], references: [id])
   timestamp DateTime @default(now())
-  
+
   // Storing the metrics as JSONB for flexibility (Min/Max/Avg)
   data      Json
-  
+
   @@index([deviceId, timestamp]) // Requirement for fast solar time-series queries
+  @@index([timestamp(sort: Desc)])
+}
+
+model Alert {
+  id           String   @id @default(uuid())
+  deviceId     String
+  device       Device   @relation(fields: [deviceId], references: [id])
+  type         String
+  severity     String   @default("warning")
+  message      String
+  acknowledged Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  @@index([deviceId])
 }
