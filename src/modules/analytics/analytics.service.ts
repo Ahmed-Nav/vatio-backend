@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GetHistoryDto } from './dto/get-history.dto';
 
@@ -8,8 +8,19 @@ export class AnalyticsService {
 
     constructor(private prisma: PrismaService) { }
 
-    async getDeviceHistory(dto: GetHistoryDto) {
+    async getDeviceHistory(userId: string, dto: GetHistoryDto) {
         const { deviceId, start, end, interval } = dto;
+
+        // Verify the authenticated user owns this device
+        const device = await this.prisma.device.findFirst({
+            where: { id: deviceId, ownerId: userId },
+        });
+        if (!device) {
+            throw new NotFoundException({
+                code: 'DEVICE_NOT_FOUND',
+                message: `Device with ID '${deviceId}' not found`,
+            });
+        }
         const bucketMap: Record<string, string> = {
             '1m': '1 minute',
             '5m': '5 minutes',

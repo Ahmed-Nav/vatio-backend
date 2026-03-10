@@ -33,7 +33,7 @@ async function bootstrap() {
 
   // 2. Configure CORS (Restricting to your frontend domains)
   app.enableCors({
-    origin: process.env.ALLOWED_ORIGINS?.split(',') || '*', // Pull from .env
+    origin: process.env.ALLOWED_ORIGINS?.split(',') || '*',
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true,
   });

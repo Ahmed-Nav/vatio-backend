@@ -7,6 +7,7 @@ import { TelemetryGateway } from './telemetry.gateway';
 import { TelemetryController } from './telemetry.controller';
 import { WsJwtGuard } from '../auth/guards/ws-jwt.guard';
 import { AuthModule } from '../auth/auth.module';
+import { BatchPersistenceService } from './batch-persistence.service';
 
 @Module({
   imports: [
@@ -21,7 +22,7 @@ import { AuthModule } from '../auth/auth.module';
     ]),
     AuthModule
   ],
-  providers: [RedisProvider, TelemetryService, AggregationService, TelemetryGateway, WsJwtGuard],
+  providers: [RedisProvider, TelemetryService, AggregationService, TelemetryGateway, WsJwtGuard, BatchPersistenceService],
   controllers: [TelemetryController],
   exports: [TelemetryService],
 })

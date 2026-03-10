@@ -11,7 +11,10 @@ import { WsJwtGuard } from '../auth/guards/ws-jwt.guard';
 import { JwtService } from '@nestjs/jwt';
 
 @WebSocketGateway({
-    cors: { origin: '*' },
+    cors: {
+        origin: process.env.ALLOWED_ORIGINS?.split(',') || '*',
+        credentials: true,
+    },
     namespace: 'telemetry',
 })
 export class TelemetryGateway implements OnGatewayConnection, OnGatewayDisconnect {
@@ -51,9 +54,7 @@ export class TelemetryGateway implements OnGatewayConnection, OnGatewayDisconnec
 
     // Called by the Aggregation Engine on every 5-second cycle
     sendUpdate(deviceId: string, data: any) {
-        // Emit to the device-specific room (clients who joined via 'joinDevice')
+        // Emit only to the device-specific room (clients who joined via 'joinDevice')
         this.server.to(`device_${deviceId}`).emit('telemetry_update', data);
-        // Also broadcast to all connected clients in the namespace
-        this.server.emit('telemetry_update', data);
     }
 }

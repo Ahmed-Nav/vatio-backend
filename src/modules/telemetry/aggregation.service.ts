@@ -2,7 +2,7 @@ import { Injectable, Inject, OnModuleInit, Logger, OnModuleDestroy } from '@nest
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from './redis.provider';
 import { TelemetryUpdate } from './interfaces/telemetry.interface';
-import { PrismaService } from 'src/prisma/prisma.service';
+import { BatchPersistenceService } from './batch-persistence.service';
 import { TelemetryGateway } from './telemetry.gateway';
 
 @Injectable()
@@ -14,7 +14,7 @@ export class AggregationService implements OnModuleInit, OnModuleDestroy {
 
     constructor(
         @Inject(REDIS_CLIENT) private readonly redis: Redis,
-        private readonly prisma: PrismaService,
+        private readonly batchService: BatchPersistenceService,
         private readonly gateway: TelemetryGateway
     ) { }
 
@@ -62,17 +62,37 @@ export class AggregationService implements OnModuleInit, OnModuleDestroy {
 
             const messages = data[0][1];
             const processedMetrics: Record<string, number[]> = {};
+            const failedIds: string[] = [];
 
             for (const message of messages) {
                 const [id, fields] = message;
-                // fields[0] is 'payload', fields[1] is the JSON string
-                const payload = JSON.parse(fields[1]);
-                const metrics = payload.metrics;
-
-                for (const [key, value] of Object.entries(metrics)) {
-                    if (!processedMetrics[key]) processedMetrics[key] = [];
-                    processedMetrics[key].push(value as number);
+                try {
+                    const payload = JSON.parse(fields[1]);
+                    const metrics = payload.metrics;
+                    for (const [key, value] of Object.entries(metrics)) {
+                        if (!processedMetrics[key]) processedMetrics[key] = [];
+                        processedMetrics[key].push(value as number);
+                    }
+                } catch (parseErr) {
+                    failedIds.push(id);
+                    this.logger.warn(
+                        `Dead-letter: failed to process message ${id} for ${deviceId}: ${parseErr.message} | Raw: ${fields[1]}`,
+                    );
                 }
+            }
+
+            // ACK all messages (successful + failed) to prevent reprocessing loops
+            const messageIds = messages.map(m => m[0]);
+            if (messageIds.length > 0) {
+                await this.redis.xack(fullKey, this.GROUP_NAME, ...messageIds);
+                this.logger.debug(`XACK for ${messageIds.length} messages (${failedIds.length} dead-lettered)`);
+            }
+
+            // Only compute aggregation if at least one message parsed successfully
+            const successCount = messages.length - failedIds.length;
+            if (successCount === 0) {
+                this.logger.warn(`All ${messages.length} messages dead-lettered for ${deviceId}, skipping aggregation`);
+                return;
             }
 
             const update: TelemetryUpdate = {
@@ -87,22 +107,14 @@ export class AggregationService implements OnModuleInit, OnModuleDestroy {
                 update.metrics.max[key] = values.reduce((a, b) => Math.max(a, b));
             }
 
-            const messageIds = messages.map(m => m[0]);
-            if (messageIds.length > 0) {
-                await this.redis.xack(fullKey, this.GROUP_NAME, ...messageIds);
-                this.logger.debug(`Batched XACK for ${messageIds.length} messages`);
-            }
-
-            await this.prisma.telemetry.create({
-                data: {
-                    deviceId: update.deviceId,
-                    timestamp: new Date(update.timestamp),
-                    data: update.metrics // Prisma automatically handles the JSON conversion
-                }
-            });
+            this.batchService.addToBatch(
+                update.deviceId,
+                new Date(update.timestamp),
+                update.metrics,
+            );
             this.gateway.sendUpdate(deviceId, update);
 
-            this.logger.log(`Aggregated & Saved ${messages.length} msgs for ${deviceId} to DB`);
+            this.logger.log(`Aggregated ${successCount}/${messages.length} msgs for ${deviceId} (${failedIds.length} dead-lettered)`);
 
         } catch (err) {
             this.logger.error(`Aggregation error for ${deviceId}: ${err.message}`);
