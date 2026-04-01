@@ -15,7 +15,6 @@ import { JwtService } from '@nestjs/jwt';
         origin: process.env.ALLOWED_ORIGINS?.split(',') || '*',
         credentials: true,
     },
-    namespace: 'telemetry',
 })
 export class TelemetryGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @WebSocketServer() server: Server;
@@ -46,8 +45,8 @@ export class TelemetryGateway implements OnGatewayConnection, OnGatewayDisconnec
 
     // Allow users to join a specific device's data room
     @UseGuards(WsJwtGuard)
-    @SubscribeMessage('joinDevice')
-    handleJoinDevice(client: Socket, deviceId: string) {
+    @SubscribeMessage('subscribe_device')
+    handleSubscribeDevice(client: Socket, deviceId: string) {
         client.join(`device_${deviceId}`);
         this.logger.log(`Client ${client.id} joined room: device_${deviceId}`);
     }

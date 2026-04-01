@@ -4,7 +4,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 interface BatchRow {
     deviceId: string;
     timestamp: Date;
-    data: any;
+    data?: any;
+    [key: string]: any; 
 }
 
 @Injectable()
@@ -13,8 +14,8 @@ export class BatchPersistenceService implements OnModuleDestroy {
     private buffer: BatchRow[] = [];
     private flushInterval: NodeJS.Timeout;
 
-    private readonly MAX_BUFFER_SIZE = 500;
-    private readonly FLUSH_INTERVAL_MS = 30_000; // 30 seconds
+    private readonly MAX_BUFFER_SIZE = 100;
+    private readonly FLUSH_INTERVAL_MS = 10_000; // 10 seconds
 
     constructor(private readonly prisma: PrismaService) {
         // Timer-based flush: every 30 seconds, flush whatever is in the buffer
@@ -26,7 +27,13 @@ export class BatchPersistenceService implements OnModuleDestroy {
      * Triggers an immediate flush if the buffer reaches MAX_BUFFER_SIZE.
      */
     addToBatch(deviceId: string, timestamp: Date, data: any): void {
-        this.buffer.push({ deviceId, timestamp, data });
+        const row = {
+            deviceId,
+            timestamp,
+            // Direct Mapping from Aggregator Output (No manual renaming/null checks needed)
+            ...data
+        };
+        this.buffer.push(row);
 
         if (this.buffer.length >= this.MAX_BUFFER_SIZE) {
             this.flush('size').catch((err) =>
@@ -47,7 +54,7 @@ export class BatchPersistenceService implements OnModuleDestroy {
         const count = batch.length;
 
         try {
-            await this.prisma.telemetry.createMany({ data: batch });
+            await this.prisma.telemetry.createMany({ data: batch as any });
             this.logger.log(`Batch flushed (${trigger}): ${count} rows persisted`);
         } catch (err) {
             this.logger.warn(`Batch insert failed (${count} rows), retrying once: ${err.message}`);
@@ -55,7 +62,7 @@ export class BatchPersistenceService implements OnModuleDestroy {
             // Retry once after a short delay
             try {
                 await new Promise((r) => setTimeout(r, 1000));
-                await this.prisma.telemetry.createMany({ data: batch });
+                await this.prisma.telemetry.createMany({ data: batch as any });
                 this.logger.log(`Batch retry succeeded: ${count} rows persisted`);
             } catch (retryErr) {
                 this.logger.error(

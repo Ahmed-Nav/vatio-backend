@@ -1,6 +1,7 @@
 export interface TelemetryUpdate {
     deviceId: string;
     timestamp: number;
+    localTime?: string;
     metrics: {
         avg: Record<string, number>;
         min: Record<string, number>;

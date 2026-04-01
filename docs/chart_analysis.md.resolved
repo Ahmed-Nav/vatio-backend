@@ -1,0 +1,74 @@
+# Vatio Dashboard: Chart & Analytics Processing Plan
+
+This document outlines the exact mathematical transformations and grouping logic required to compute the charting data from the raw MQTT telemetry fields. 
+
+## 1. Load Analysis (Active Power)
+**Fields:** `kW_L1`, `kW_L2`, `kW_L3`, `Total_kW`
+**Chart Type:** Continuous Curve Graph
+**Metric Requirements:**
+- **Base Load:** The absolute minimum `Total_kW` value recorded over the selected timeframe.
+- **Average Load:** The mean of `Total_kW` over the window.
+- **Peak Load:** The absolute maximum `Total_kW` value recorded over the timeframe.
+*Implementation:* This can be visualized as a continuous multi-line graph containing the 3 individual phase powers and the total power, with the Base, Avg, and Peak loads highlighted either as horizontal threshold lines or summary statistic cards above the chart.
+
+## 2. Energy Analysis (kWh)
+**Fields:** `Import_kWh`
+**Chart Type:** Bar Graph
+**Metric Requirements:**
+Cumulative energy meters continuously increase. To show usage per block of time, we must compute **deltas** (the difference between the end of the interval and the beginning of the interval).
+- **Hourly Basis:** 
+  Calculate `MAX(Import_kWh) - MIN(Import_kWh)` for each 1-hour block (e.g., 00:00-01:00, 01:00-02:00 ... 23:00-24:00). Display as 24 hourly bars.
+- **Daily Basis:** 
+  For a monthly view, calculate `MAX(Import_kWh) - MIN(Import_kWh)` for each 24-hour day (e.g., Day 1, Day 2 ... Day 31).
+*Implementation:* The backend `telemetry.service.ts` will need a specific SQL Group-By query that buckets timestamps by `date_trunc('hour')` or `date_trunc('day')` and returns `MAX(energy) - MIN(energy)` as the `consumption` for that bucket.
+
+## 3. Voltage Profile
+**Chart Type:** Continuous Curve Graph
+**Metric Requirements:**
+- **Line-to-Line (L-L):** `V_L12`, `V_L23`, `V_L31`, `V_Avg_LL` plotted together on one chart to show inter-phase balance.
+- **Line-to-Neutral (L-N):** `V_L1N`, `V_L2N`, `V_L3N`, `V_Avg_LN` plotted together on a separate chart or toggle to monitor phase-to-ground voltage.
+*Implementation:* Direct time-series plotting using ECharts with downsampled averages.
+
+## 4. Current Profile
+**Fields:** `I_L1`, `I_L2`, `I_L3`, `I_Avg`
+**Chart Type:** Continuous Curve Graph with Min/Max Bands
+**Metric Requirements:**
+- Plot the average current over time.
+- Overlay the **Minimum** and **Maximum** recorded values within each aggregated chunk to visualize spikes and dropoffs (e.g., motor inrush current).
+*Implementation:* In the SQL aggregation, alongside `AVG(current)`, we will query `MIN(current)` and `MAX(current)` and plot them as boundaries (e.g., using an area chart or candlestick bounds).
+
+## 5. Power Factor (PF) Analysis
+**Fields:** `PF_L1`, `PF_L2`, `PF_L3`, `PF_Avg`
+**Chart Type:** Continuous Curve Graph with Min/Max Bands
+**Metric Requirements:**
+- Plot the average Power Factor (ideal ~0.99) over time.
+- Show the **Min and Max** boundaries to detect transient reactive loads.
+
+## 6. Frequency Analysis
+**Fields:** `Frequency`
+**Chart Type:** Continuous Curve Graph with Min/Max Bands
+**Metric Requirements:**
+- Plot the rolling average of grid frequency (Target: 50Hz/60Hz).
+- Show the **Min and Max** bounds to detect grid instability.
+
+## 7. Voltage THD Analysis (Total Harmonic Distortion)
+**Fields:** `VTHD_L1`, `VTHD_L2`, `VTHD_L3`
+**Chart Type:** Continuous Curve Graph with Min/Max Bands
+**Metric Requirements:**
+- Directly plot the THD percentage for all three phases.
+- Include **Min and Max** bounds to show pollution limits and harmonic transient peaks caused by non-linear loads.
+
+## 8. Solar Analysis
+**Chart Type:** Bar Graph
+**Metric Requirements:**
+This analysis tracks structural load profiles over longer periods to optimize solar deployment based on **full grid consumption from the government side (`Import_kWh`)**:
+1. **Average Energy Consumption (24-Hour Grid Profile):**
+   - Gather data for the past 30 days (or available historical data).
+   - Compute the Grid `Import_kWh` delta for every single hour over those 30 days.
+   - Average those hourly deltas together by their "Hour of Day" (0-23). 
+   - Display a 24-bar graph representing the average grid energy consumed from the government during each specific hour of the day over the last month.
+*Implementation:* The backend will query the last 30 days of telemetry, bucket the timestamps by hour, calculate the energy `max - min` delta per bucket, and then average those deltas grouping strictly by `EXTRACT(hour from timestamp)`.
+
+---
+**Summary for Backend Logic:**
+While the simple line charts (Voltage, Load) only require basic average downsampling (`date_trunc`), the **Energy Analysis & Solar Analysis** require advanced SQL window delta calculations (`max - min`), and the profiles (Current, PF, Freq, THD) require the backend to return `min`, `max`, and `avg` for each time bucket so the frontend can paint the bounds.

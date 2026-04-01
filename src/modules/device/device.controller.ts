@@ -1,10 +1,11 @@
-import { Controller, Post, Get, Delete, Patch, Body, Param, Req } from '@nestjs/common';
+import { Controller, Post, Get, Delete, Patch, Body, Param, Req, Logger } from '@nestjs/common';
 import { DeviceService } from './device.service';
 import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
 
 @Controller('devices')
 export class DeviceController {
+    private readonly logger = new Logger(DeviceController.name);
     constructor(private readonly deviceService: DeviceService) { }
 
     @Post()
@@ -14,7 +15,15 @@ export class DeviceController {
 
     @Get()
     async getMyDevices(@Req() req) {
-        return this.deviceService.findAll(req.user.userId);
+        this.logger.log(`getMyDevices called — req.user = ${JSON.stringify(req.user)}`);
+        try {
+            const result = await this.deviceService.findAll(req.user.userId);
+            this.logger.log(`getMyDevices found ${result.length} devices`);
+            return result;
+        } catch (error) {
+            this.logger.error(`getMyDevices FAILED: ${error.message}`, error.stack);
+            throw error;
+        }
     }
 
     @Get(':id')

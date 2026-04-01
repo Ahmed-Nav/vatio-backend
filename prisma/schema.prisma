@@ -4,6 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -12,50 +13,92 @@ model User {
   name      String?
   password  String
   role      String   @default("user")
-  devices   Device[]
   createdAt DateTime @default(now())
+  devices   Device[]
 }
 
 model Device {
-  id           String      @id // Use the Device ID from MQTT (e.g., DEV-001)
-  name         String
-  location     String?
-  type         String?
-  status       String      @default("active")
-  hwVersion    String?     @map("hw_version")
-  fwVersion    String?     @map("fw_version")
-  lastSeen     DateTime?   @map("last_seen")
-  ownerId      String
-  owner        User        @relation(fields: [ownerId], references: [id])
-  telemetries  Telemetry[]
-  alerts       Alert[]
-  createdAt    DateTime    @default(now())
+  id          String      @id
+  name        String
+  location    String?
+  type        String?
+  status      String      @default("active")
+  hwVersion   String?     @map("hw_version")
+  fwVersion   String?     @map("fw_version")
+  lastSeen    DateTime?   @map("last_seen")
+  ownerId     String
+  createdAt   DateTime    @default(now())
+  alerts      Alert[]
+  owner       User        @relation(fields: [ownerId], references: [id])
+  telemetries Telemetry[]
 
   @@index([lastSeen])
 }
 
 model Telemetry {
-  id        BigInt   @id @default(autoincrement())
-  deviceId  String
-  device    Device   @relation(fields: [deviceId], references: [id])
-  timestamp DateTime @default(now())
+  id             BigInt   @id @default(autoincrement())
+  deviceId       String
+  timestamp      DateTime @default(now())
+  data           Json?
+  voltage        Float?
+  voltage2       Float?
+  voltage3       Float?
+  vAvgLN         Float?
+  vL12           Float?
+  vL23           Float?
+  vL31           Float?
+  vAvgLL         Float?
+  current        Float?
+  current2       Float?
+  current3       Float?
+  iAvg           Float?
+  power          Float?
+  power1         Float?
+  power2         Float?
+  power3         Float?
+  kva            Float?
+  kva1           Float?
+  kva2           Float?
+  kva3           Float?
+  kvar           Float?
+  kvar1          Float?
+  kvar2          Float?
+  kvar3          Float?
+  pf1            Float?
+  pf2            Float?
+  pf3            Float?
+  pfAvg          Float?
+  energyExport   Float?
+  impkwh         Float?
+  localTime      String?
+  energyNet      Float?
+  energyTotal    Float?
+  energyKVAh     Float?
+  energyImpKVArh Float?
+  energyExpKVArh Float?
+  frequency      Float?
+  vthdL1         Float?
+  vthdL2         Float?
+  vthdL3         Float?
+  ithdL1         Float?
+  ithdL2         Float?
+  ithdL3         Float?
+  temp           Float?
+  status         Int?
+  device         Device   @relation(fields: [deviceId], references: [id])
 
-  // Storing the metrics as JSONB for flexibility (Min/Max/Avg)
-  data      Json
-
-  @@index([deviceId, timestamp]) // Requirement for fast solar time-series queries
-  @@index([timestamp(sort: Desc)])
+  @@index([deviceId, timestamp(sort: Desc)])
 }
 
 model Alert {
   id           String   @id @default(uuid())
   deviceId     String
-  device       Device   @relation(fields: [deviceId], references: [id])
   type         String
   severity     String   @default("warning")
   message      String
   acknowledged Boolean  @default(false)
   createdAt    DateTime @default(now())
+  device       Device   @relation(fields: [deviceId], references: [id])
 
   @@index([deviceId])
 }

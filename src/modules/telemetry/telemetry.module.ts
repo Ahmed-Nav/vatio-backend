@@ -8,6 +8,7 @@ import { TelemetryController } from './telemetry.controller';
 import { WsJwtGuard } from '../auth/guards/ws-jwt.guard';
 import { AuthModule } from '../auth/auth.module';
 import { BatchPersistenceService } from './batch-persistence.service';
+import { PrismaModule } from '../../prisma/prisma.module';
 
 @Module({
   imports: [
@@ -20,7 +21,8 @@ import { BatchPersistenceService } from './batch-persistence.service';
         },
       },
     ]),
-    AuthModule
+    AuthModule,
+    PrismaModule
   ],
   providers: [RedisProvider, TelemetryService, AggregationService, TelemetryGateway, WsJwtGuard, BatchPersistenceService],
   controllers: [TelemetryController],

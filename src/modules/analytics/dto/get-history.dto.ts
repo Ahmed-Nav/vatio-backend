@@ -4,6 +4,8 @@ export enum BucketInterval {
     ONE_MIN = '1m',
     FIVE_MIN = '5m',
     ONE_HOUR = '1h',
+    ONE_DAY = '1d',
+    ONE_MONTH = '1mo',
 }
 
 export class GetHistoryDto {

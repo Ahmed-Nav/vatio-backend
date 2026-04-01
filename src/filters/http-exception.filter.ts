@@ -4,13 +4,17 @@ import {
     ArgumentsHost,
     HttpException,
     HttpStatus,
+    Logger,
 } from '@nestjs/common';
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
-    catch(exception: unknown, host: ArgumentsHost) {
+    private readonly logger = new Logger(HttpExceptionFilter.name);
+
+    catch(exception: any, host: ArgumentsHost) {
         const ctx = host.switchToHttp();
         const response = ctx.getResponse();
+        const request = ctx.getRequest();
 
         let status = HttpStatus.INTERNAL_SERVER_ERROR;
         let message = 'Internal server error';
@@ -24,7 +28,6 @@ export class HttpExceptionFilter implements ExceptionFilter {
                 message = exceptionResponse;
             } else if (typeof exceptionResponse === 'object' && exceptionResponse !== null) {
                 const res = exceptionResponse as any;
-                // If the service already provided a { code, message } shape, use it
                 if (res.code) {
                     code = res.code;
                     message = res.message || message;
@@ -33,10 +36,21 @@ export class HttpExceptionFilter implements ExceptionFilter {
                 }
             }
 
-            // Map HTTP status to a readable error code if not explicitly set
             if (!((exception.getResponse() as any)?.code)) {
                 code = this.getCodeFromStatus(status);
             }
+        }
+
+        // Log the error
+        if (status >= 500) {
+            this.logger.error(
+                `[${request.method}] ${request.url} - Status: ${status} - Error: ${exception.message}`,
+                exception.stack,
+            );
+        } else {
+            this.logger.warn(
+                `[${request.method}] ${request.url} - Status: ${status} - Error: ${message}`,
+            );
         }
 
         response.status(status).send({

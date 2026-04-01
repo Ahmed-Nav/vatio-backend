@@ -12,4 +12,12 @@ export class CreateDeviceDto {
     @IsString()
     @IsOptional()
     location?: string;
+
+    @IsString()
+    @IsOptional()
+    type?: string;
+
+    @IsString()
+    @IsOptional()
+    status?: string;
 }

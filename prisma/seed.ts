@@ -1,61 +1,55 @@
 import { PrismaClient } from '@prisma/client';
 import { Pool } from 'pg';
-import { PrismaPg } from '@prisma/adapter-pg';
 import 'dotenv/config';
 import * as bcrypt from 'bcrypt';
 
-// 1. Initialize the Postgres Pool
-const connectionString = process.env.DATABASE_URL;
-const pool = new Pool({ connectionString });
-
-// 2. Wrap it in the Prisma Adapter
-const adapter = new PrismaPg(pool);
-
-// 3. Initialize Prisma 7 Client with the adapter
-const prisma = new PrismaClient({ adapter });
+// Initialize Prisma Client using native connection
+const prisma = new PrismaClient();
 
 async function main() {
     const hashedPassword = await bcrypt.hash('admin@123', 10);
 
+    // @ts-ignore
     const user = await prisma.user.upsert({
-        where: { email: 'admin@vatio.com' },
-        update: {},
+        where: { email: 'admin@vatio.io' },
+        update: { password: hashedPassword },
         create: {
-            email: 'admin@vatio.com',
+            email: 'admin@vatio.io',
             name: 'Vatio Admin',
             password: hashedPassword,
         },
     });
 
     await prisma.device.upsert({
-        where: { id: 'DEV-001' },
+        where: { id: 'SIM-001' },
         update: {},
         create: {
-            id: 'DEV-001',
-            name: 'Solar Panel Array A',
-            location: 'Rooftop A',
-            type: 'solar',
-            ownerId: user.id,
+            id: 'SIM-001',
+            name: 'Simulator 1 (AC Main)',
+            location: 'Factory Floor A',
+            type: 'meter',
+            owner: { connect: { id: user.id } },
         },
     });
 
     await prisma.device.upsert({
-        where: { id: 'DEV-002' },
+        where: { id: 'SIM-001' },
         update: {},
         create: {
-            id: 'DEV-002',
-            name: 'Solar Panel Array B',
-            location: 'Rooftop B',
-            type: 'solar',
-            ownerId: user.id,
+            id: 'SIM-001',
+            name: 'Simulator 1 (AC Main)',
+            location: 'Factory Floor A',
+            type: 'meter',
+            owner: { connect: { id: user.id } },
         },
     });
 
-    console.log('Seed completed: User, DEV-001, and DEV-002 created.');
+    console.log('Seed completed: User and SIM-001 created.');
 
     // -----------------------------------------------------------
     // TimescaleDB Setup (gracefully skips if extension unavailable)
     // -----------------------------------------------------------
+    const connectionString = process.env.DATABASE_URL;
     const pgPool = new Pool({ connectionString });
     const client = await pgPool.connect();
     try {
