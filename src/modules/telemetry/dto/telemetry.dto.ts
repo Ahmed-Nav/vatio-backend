@@ -1,4 +1,4 @@
-import { IsString, IsObject, IsNotEmpty } from 'class-validator';
+import { IsString, IsObject, IsNotEmpty, IsOptional } from 'class-validator';
 
 export class TelemetryDto {
     @IsString()
@@ -6,5 +6,6 @@ export class TelemetryDto {
     deviceId: string;
 
     @IsObject()
+    @IsOptional()
     metrics: Record<string, number>;
 }

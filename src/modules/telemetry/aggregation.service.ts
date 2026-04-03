@@ -68,10 +68,12 @@ export class AggregationService implements OnModuleInit, OnModuleDestroy {
                 const [id, fields] = message;
                 try {
                     const payload = JSON.parse(fields[1]);
-                    const metrics = payload.metrics;
+                    const metrics = payload.metrics || payload;
                     for (const [key, value] of Object.entries(metrics)) {
-                        if (!processedMetrics[key]) processedMetrics[key] = [];
-                        processedMetrics[key].push(value as number);
+                        if (typeof value === 'number') {
+                            if (!processedMetrics[key]) processedMetrics[key] = [];
+                            processedMetrics[key].push(value);
+                        }
                     }
                 } catch (parseErr) {
                     failedIds.push(id);
