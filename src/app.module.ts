@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { BullModule } from '@nestjs/bullmq';
@@ -12,17 +13,21 @@ import { AlertModule } from './modules/alert/alert.module';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 
+import { RedisModule } from './modules/redis/redis.module';
+
 @Module({
   imports: [
     BullModule.forRoot({
       connection: getRedisConfig(),
     }),
-    TelemetryModule,
     PrismaModule,
+    RedisModule,
+    TelemetryModule,
     AuthModule,
     AnalyticsModule,
     DeviceModule,
     AlertModule,
+    ScheduleModule.forRoot(),
   ],
   controllers: [AppController],
   providers: [

@@ -1,6 +1,8 @@
 generator client {
   provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
 }
+
 
 datasource db {
   provider = "postgresql"
@@ -29,6 +31,8 @@ model Device {
   ownerId     String
   createdAt   DateTime    @default(now())
   alerts      Alert[]
+  hourlyStats HourlyDeviceStats[]
+  dailyStats  DailyDeviceStats[]
   owner       User        @relation(fields: [ownerId], references: [id])
   telemetries Telemetry[]
 
@@ -101,4 +105,66 @@ model Alert {
   device       Device   @relation(fields: [deviceId], references: [id])
 
   @@index([deviceId])
+}
+
+model HourlyDeviceStats {
+  id        String   @id @default(uuid())
+  deviceId  String
+  timestamp DateTime
+
+  // Averages (Total/Avg)
+  avgVoltage Float?
+  avgCurrent Float?
+  avgPower   Float?
+  avgPF      Float?
+  avgFreq    Float?
+
+  // Phase-specific Averages
+  avgV1 Float?
+  avgV2 Float?
+  avgV3 Float?
+  avgI1 Float?
+  avgI2 Float?
+  avgI3 Float?
+  avgP1 Float?
+  avgP2 Float?
+  avgP3 Float?
+
+  // Min/Max for bands
+  minVoltage Float?
+  maxVoltage Float?
+  minCurrent Float?
+  maxCurrent Float?
+  minPower   Float?
+  maxPower   Float?
+
+  // Energy Deltas
+  energyImport Float? // MAX(impkwh) - MIN(impkwh) in the hour
+  energyExport Float? // MAX(energyExport) - MIN(energyExport) in the hour
+
+  count Int @default(1)
+
+  device Device @relation(fields: [deviceId], references: [id])
+
+  @@unique([deviceId, timestamp])
+  @@index([timestamp])
+}
+
+model DailyDeviceStats {
+  id        String   @id @default(uuid())
+  deviceId  String
+  timestamp DateTime // Start of day
+
+  avgVoltage   Float?
+  avgCurrent   Float?
+  avgPower     Float?
+  energyImport Float?
+  energyExport Float?
+
+  count Int @default(1)
+
+  device Device @relation(fields: [deviceId], references: [id])
+
+  @@unique([deviceId, timestamp])
+  @@index([timestamp])
 }

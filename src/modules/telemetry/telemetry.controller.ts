@@ -1,5 +1,5 @@
 import { Controller, Get, Param } from '@nestjs/common';
-import { MessagePattern, Payload } from '@nestjs/microservices';
+import { MessagePattern, Payload, Ctx, MqttContext } from '@nestjs/microservices';
 import { TelemetryService } from './telemetry.service';
 import { TelemetryDto } from './dto/telemetry.dto';
 import { Public } from '../auth/decorators/public.decorator';
@@ -10,11 +10,19 @@ export class TelemetryController {
 
     @Public()
     @MessagePattern('vatio/+/rs485')
-    async handleTelemetry(@Payload() data: any) {
-        console.log('\n--- 🟢 DEVICE ALIVE: RECEIVED MQTT DATA ---');
+    async handleTelemetry(@Payload() data: any, @Ctx() context: MqttContext) {
+        // Extract deviceId from topic: 'vatio/<deviceId>/rs485'
+        const topic = context.getTopic();
+        const parts = topic.split('/');
+        const deviceId = parts[1];
+
+        console.log(`\n--- 🟢 DEVICE ALIVE: [${deviceId}] RECEIVED MQTT DATA ---`);
         console.log(data);
         console.log('-------------------------------------------\n');
-        // Let it run through the rest of the flow (it might fail validation later, but we just want to see it alive)
+
+        // Inject the deviceId from the topic into the data object
+        data.deviceId = deviceId;
+        
         return this.telemetryService.ingestData(data as TelemetryDto);
     }
 

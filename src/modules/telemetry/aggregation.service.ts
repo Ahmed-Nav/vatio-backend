@@ -1,229 +1,226 @@
-import { Injectable, Inject, OnModuleInit, Logger, OnModuleDestroy } from '@nestjs/common';
-import Redis from 'ioredis';
-import { REDIS_CLIENT } from './redis.provider';
-import { TelemetryUpdate } from './interfaces/telemetry.interface';
-import { BatchPersistenceService } from './batch-persistence.service';
-import { TelemetryGateway } from './telemetry.gateway';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
-export class AggregationService implements OnModuleInit, OnModuleDestroy {
-    private readonly logger = new Logger(AggregationService.name);
-    private readonly GROUP_NAME = 'vatio-aggregator';
-    private readonly CONSUMER_NAME = 'worker-1';
-    private intervalRef: NodeJS.Timeout;
+export class AggregationService {
+  private readonly logger = new Logger(AggregationService.name);
 
-    constructor(
-        @Inject(REDIS_CLIENT) private readonly redis: Redis,
-        private readonly batchService: BatchPersistenceService,
-        private readonly gateway: TelemetryGateway,
-        private readonly prisma: PrismaService
-    ) { }
+  constructor(private readonly prisma: PrismaService) {}
 
-    async onModuleInit() {
-        // Tumbling window: flush every 5 seconds
-        this.logger.log('Aggregation Loop Started!');
-        this.intervalRef = setInterval(() => this.processWindows(), 5000);
+  /**
+   * Process a batch of telemetry and update HourlyDeviceStats incrementally.
+   */
+  async updateHourlyStats(batch: any[], tx?: any) {
+    const prisma = tx || this.prisma;
+    if (!batch.length) return;
+
+    // Group batch by deviceId and hour
+    const groups = new Map<string, any[]>();
+    for (const row of batch) {
+      const ts = row.timestamp instanceof Date ? row.timestamp : new Date(row.timestamp);
+      const hour = new Date(ts);
+      hour.setMinutes(0, 0, 0); 
+      const key = `${row.deviceId}||${hour.toISOString()}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(row);
     }
 
-    onModuleDestroy() {
-        if (this.intervalRef) {
-            clearInterval(this.intervalRef);
-            this.logger.log('Aggregation interval cleared safely.');
-        }
-    }
+    // Process each group
+    for (const [key, rows] of groups.entries()) {
+      const [deviceId, hourStr] = key.split('||');
+      const timestamp = new Date(hourStr);
 
-    async processWindows() {
-        let cursor = '0';
-        do {
-            const [nextCursor, keys] = await this.redis.scan(
-                cursor,
-                'MATCH', 'vatio:stream:device:*',
-                'COUNT', 100
-            );
-            cursor = nextCursor;
+      const batchCount = rows.length;
+      
+      // Totals
+      const bAvgV = this.avg(rows, 'voltage');
+      const bAvgI = this.avg(rows, 'current');
+      const bAvgP = this.avg(rows, 'power');
+      const bAvgPF = this.avg(rows, 'pfAvg');
+      const bAvgF = this.avg(rows, 'frequency');
 
-            for (const fullKey of keys) {
-                const deviceId = fullKey.split(':').pop();
-                if (deviceId) await this.aggregateDeviceData(fullKey, deviceId);
-            }
-        } while (cursor !== '0');
-    }
+      // Phases
+      const bAvgV1 = this.avg(rows, 'voltage');
+      const bAvgV2 = this.avg(rows, 'voltage2');
+      const bAvgV3 = this.avg(rows, 'voltage3');
+      const bAvgI1 = this.avg(rows, 'current');
+      const bAvgI2 = this.avg(rows, 'current2');
+      const bAvgI3 = this.avg(rows, 'current3');
+      const bAvgP1 = this.avg(rows, 'power1');
+      const bAvgP2 = this.avg(rows, 'power2');
+      const bAvgP3 = this.avg(rows, 'power3');
 
-    private async aggregateDeviceData(fullKey: string, deviceId: string) {
-        try {
-            // Requirement: Ensure Consumer Group exists 
-            await this.redis.xgroup('CREATE', fullKey, this.GROUP_NAME, '0', 'MKSTREAM').catch(() => { });
+      // Bands
+      const bMinV = this.min(rows, 'voltage');
+      const bMaxV = this.max(rows, 'voltage');
+      const bMinI = this.min(rows, 'current');
+      const bMaxI = this.max(rows, 'current');
+      const bMinP = this.min(rows, 'power');
+      const bMaxP = this.max(rows, 'power');
 
-            const data = await this.redis.xreadgroup(
-                'GROUP', this.GROUP_NAME, this.CONSUMER_NAME,
-                'COUNT', 1000, 'STREAMS', fullKey, '>'
-            ) as any[];
+      const bMaxE = this.max(rows, 'impkwh');
+      const bMinE = this.min(rows, 'impkwh');
+      const energyImport = bMaxE - bMinE;
 
-            if (!data || data.length === 0) return;
+      try {
+        if (tx) {
+          // Use the provided transaction
+          const existing = await tx.hourlyDeviceStats.findUnique({
+            where: { deviceId_timestamp: { deviceId, timestamp } }
+          });
 
-            const messages = data[0][1];
-            const processedMetrics: Record<string, number[]> = {};
-            const failedIds: string[] = [];
+          if (existing) {
+            const n = existing.count;
+            const m = batchCount;
+            const newCount = n + m;
 
-            for (const message of messages) {
-                const [id, fields] = message;
-                try {
-                    // fields[1] is the raw JSON string pushed from the controller
-                    const payload = JSON.parse(fields[1]);
+            await tx.hourlyDeviceStats.update({
+              where: { id: existing.id },
+              data: {
+                count: newCount,
+                avgVoltage: (existing.avgVoltage * n + bAvgV * m) / newCount,
+                avgCurrent: (existing.avgCurrent * n + bAvgI * m) / newCount,
+                avgPower: (existing.avgPower * n + bAvgP * m) / newCount,
+                avgPF: (existing.avgPF * n + bAvgPF * m) / newCount,
+                avgFreq: (existing.avgFreq * n + bAvgF * m) / newCount,
 
-                    // Helper functions for Data Sanitization
-                    const clampPos = (v: any) => (typeof v === 'number' && isFinite(v) && v > 0 ? v : 0);
-                    const clampAny = (v: any) => (typeof v === 'number' && isFinite(v) ? v : 0);
-                    const toW = (kw: any) => clampAny(kw) * 1000;
-                    
-                    // Sanitize Active Power (Cannot exceed 150 kW per phase)
-                    const MAX_W = 150_000;
-                    const guard = (v: number) => Math.abs(v) > MAX_W ? 0 : v;
+                // Phase Averages
+                avgV1: (existing.avgV1 * n + bAvgV1 * m) / newCount,
+                avgV2: (existing.avgV2 * n + bAvgV2 * m) / newCount,
+                avgV3: (existing.avgV3 * n + bAvgV3 * m) / newCount,
+                avgI1: (existing.avgI1 * n + bAvgI1 * m) / newCount,
+                avgI2: (existing.avgI2 * n + bAvgI2 * m) / newCount,
+                avgI3: (existing.avgI3 * n + bAvgI3 * m) / newCount,
+                avgP1: (existing.avgP1 * n + bAvgP1 * m) / newCount,
+                avgP2: (existing.avgP2 * n + bAvgP2 * m) / newCount,
+                avgP3: (existing.avgP3 * n + bAvgP3 * m) / newCount,
 
-                    // Execute the precise 38-field mapping
-                    const mappedMetrics: Record<string, number> = {
-                        // Energy
-                        impkwh: clampPos(payload.Import_kWh),
-                        energyExport: clampAny(payload.Export_kWh),
-                        energyNet: clampAny(payload.Net_kWh),
-                        energyTotal: clampPos(payload.Total_kWh),
-                        energyKVAh: clampPos(payload.Total_kVAh),
-                        energyImpKVArh: clampPos(payload.Import_kVArh),
-                        energyExpKVArh: clampAny(payload.Export_kVArh),
-
-                        // Phase-to-Neutral Voltages
-                        voltage: clampPos(payload.V_L1N),
-                        voltage2: clampPos(payload.V_L2N),
-                        voltage3: clampPos(payload.V_L3N),
-                        vAvgLN: clampPos(payload.V_Avg_LN),
-
-                        // Line-to-Line Voltages
-                        vL12: clampPos(payload.V_L12),
-                        vL23: clampPos(payload.V_L23),
-                        vL31: clampPos(payload.V_L31),
-                        vAvgLL: clampPos(payload.V_Avg_LL),
-
-                        // Currents
-                        current: clampAny(payload.I_L1),
-                        current2: clampAny(payload.I_L2),
-                        current3: clampAny(payload.I_L3),
-                        iAvg: clampAny(payload.I_Avg),
-
-                        // Active Power (Converted to Watts)
-                        power: toW(payload.Total_kW),
-                        power1: guard(toW(payload.kW_L1)),
-                        power2: guard(toW(payload.kW_L2)),
-                        power3: guard(toW(payload.kW_L3)),
-
-                        // Apparent Power (Converted to VA)
-                        kva: toW(payload.Total_kVA),
-                        kva1: guard(toW(payload.kVA_L1)),
-                        kva2: guard(toW(payload.kVA_L2)),
-                        kva3: guard(toW(payload.kVA_L3)),
-
-                        // Reactive Power (Converted to VAr)
-                        kvar: toW(payload.Total_kVAr),
-                        kvar1: guard(toW(payload.kVAr_L1)),
-                        kvar2: guard(toW(payload.kVAr_L2)),
-                        kvar3: guard(toW(payload.kVAr_L3)),
-
-                        // Power Factor
-                        pf1: clampAny(payload.PF_L1),
-                        pf2: clampAny(payload.PF_L2),
-                        pf3: clampAny(payload.PF_L3),
-                        pfAvg: clampAny(payload.PF_Avg),
-
-                        // Power Quality
-                        frequency: clampPos(payload.Frequency) || 50.0,
-                        vthdL1: clampAny(payload.VTHD_L1),
-                        vthdL2: clampAny(payload.VTHD_L2),
-                        vthdL3: clampAny(payload.VTHD_L3),
-                        ithdL1: clampAny(payload.ITHD_L1),
-                        ithdL2: clampAny(payload.ITHD_L2),
-                        ithdL3: clampAny(payload.ITHD_L3),
-                    };
-
-                    for (const [key, value] of Object.entries(mappedMetrics)) {
-                        if (!processedMetrics[key]) processedMetrics[key] = [];
-                        processedMetrics[key].push(value);
-                    }
-                } catch (parseErr) {
-                    failedIds.push(id);
-                    this.logger.warn(
-                        `Dead-letter: failed to process message ${id} for ${deviceId}: ${parseErr.message} | Raw: ${fields[1]}`,
-                    );
+                minVoltage: Math.min(existing.minVoltage ?? Infinity, bMinV),
+                maxVoltage: Math.max(existing.maxVoltage ?? -Infinity, bMaxV),
+                minCurrent: Math.min(existing.minCurrent ?? Infinity, bMinI),
+                maxCurrent: Math.max(existing.maxCurrent ?? -Infinity, bMaxI),
+                minPower: Math.min(existing.minPower ?? Infinity, bMinP),
+                maxPower: Math.max(existing.maxPower ?? -Infinity, bMaxP),
+                energyImport: (existing.energyImport || 0) + energyImport
+              }
+            });
+          } else {
+            try {
+              await tx.hourlyDeviceStats.create({
+                data: {
+                  deviceId, timestamp, count: batchCount,
+                  avgVoltage: bAvgV, avgCurrent: bAvgI, avgPower: bAvgP, avgPF: bAvgPF, avgFreq: bAvgF,
+                  avgV1: bAvgV1, avgV2: bAvgV2, avgV3: bAvgV3,
+                  avgI1: bAvgI1, avgI2: bAvgI2, avgI3: bAvgI3,
+                  avgP1: bAvgP1, avgP2: bAvgP2, avgP3: bAvgP3,
+                  minVoltage: bMinV !== Infinity ? bMinV : null,
+                  maxVoltage: bMaxV !== -Infinity ? bMaxV : null,
+                  minCurrent: bMinI !== Infinity ? bMinI : null,
+                  maxCurrent: bMaxI !== -Infinity ? bMaxI : null,
+                  minPower: bMinP !== Infinity ? bMinP : null,
+                  maxPower: bMaxP !== -Infinity ? bMaxP : null,
+                  energyImport
                 }
+              });
+            } catch (fkError) {
+              // If FK constraint fails, it might be due to transaction isolation
+              // For now, just log and skip - aggregation can happen later
+              this.logger.warn(`FK constraint failed for ${deviceId} - skipping aggregation for now: ${fkError.message}`);
+              // Don't throw - let telemetry be saved even if aggregation fails
             }
-
-            // ACK all messages (successful + failed) to prevent reprocessing loops
-            const messageIds = messages.map(m => m[0]);
-            if (messageIds.length > 0) {
-                await this.redis.xack(fullKey, this.GROUP_NAME, ...messageIds);
-                this.logger.debug(`XACK for ${messageIds.length} messages (${failedIds.length} dead-lettered)`);
-            }
-
-            // Only compute aggregation if at least one message parsed successfully
-            const successCount = messages.length - failedIds.length;
-            if (successCount === 0) {
-                this.logger.warn(`All ${messages.length} messages dead-lettered for ${deviceId}, skipping aggregation`);
-                return;
-            }
-
-            const update: TelemetryUpdate = {
-                deviceId,
-                timestamp: Date.now(),
-                localTime: new Date(Date.now() - (new Date().getTimezoneOffset() * 60000)).toISOString().replace('T', ' ').substring(0, 19),
-                metrics: { avg: {}, min: {}, max: {} }
-            };
-
-            for (const [key, values] of Object.entries(processedMetrics)) {
-                update.metrics.avg[key] = values.reduce((a, b) => a + b, 0) / values.length;
-                update.metrics.min[key] = values.reduce((a, b) => Math.min(a, b));
-                update.metrics.max[key] = values.reduce((a, b) => Math.max(a, b));
-            }
-
-            // Energy meters are cumulative (kWh). For correct `MAX(energy)-MIN(energy)` deltas,
-            // the persisted row should represent the latest/highest reading within the aggregation window,
-            // not the window average.
-            const persistedMetrics = {
-                ...update.metrics.avg,
-                impkwh: update.metrics.max.impkwh,
-                localTime: update.localTime,
-                energyExport: update.metrics.max.energyExport,
-                energyNet: update.metrics.max.energyNet,
-                energyTotal: update.metrics.max.energyTotal,
-                energyKVAh: update.metrics.max.energyKVAh,
-                energyImpKVArh: update.metrics.max.energyImpKVArh,
-                energyExpKVArh: update.metrics.max.energyExpKVArh,
-            };
-
-            this.batchService.addToBatch(
-                update.deviceId,
-                new Date(update.timestamp),
-                persistedMetrics
-            );
-            this.gateway.sendUpdate(deviceId, {
-                deviceId,
-                timestamp: update.timestamp,
-                voltage: update.metrics.avg.voltage || 0,
-                current: update.metrics.avg.current || 0,
-                power: update.metrics.avg.power || 0,
-                energy: update.metrics.max.impkwh || 0,
-                frequency: update.metrics.avg.frequency || 50,
-                powerFactor: update.metrics.avg.pfAvg || 0.98,
+          }
+        } else {
+          // Create our own transaction
+          await this.prisma.$transaction(async (tx: any) => {
+            const existing = await tx.hourlyDeviceStats.findUnique({
+              where: { deviceId_timestamp: { deviceId, timestamp } }
             });
 
-            this.logger.log(`Aggregated ${successCount}/${messages.length} msgs for ${deviceId} (${failedIds.length} dead-lettered)`);
-            
-            // Update Device Status/LastSeen
-            await this.prisma.device.update({
-                where: { id: deviceId },
-                data: { lastSeen: new Date(), status: 'online' }
-            }).catch(e => this.logger.warn(`Failed to update lastSeen for ${deviceId}: ${e.message}`));
+            if (existing) {
+              const n = existing.count;
+              const m = batchCount;
+              const newCount = n + m;
 
-        } catch (err) {
-            this.logger.error(`Aggregation error for ${deviceId}: ${err.message}`);
+              await tx.hourlyDeviceStats.update({
+                where: { id: existing.id },
+                data: {
+                  count: newCount,
+                  avgVoltage: (existing.avgVoltage * n + bAvgV * m) / newCount,
+                  avgCurrent: (existing.avgCurrent * n + bAvgI * m) / newCount,
+                  avgPower: (existing.avgPower * n + bAvgP * m) / newCount,
+                  avgPF: (existing.avgPF * n + bAvgPF * m) / newCount,
+                  avgFreq: (existing.avgFreq * n + bAvgF * m) / newCount,
+
+                  // Phase Averages
+                  avgV1: (existing.avgV1 * n + bAvgV1 * m) / newCount,
+                  avgV2: (existing.avgV2 * n + bAvgV2 * m) / newCount,
+                  avgV3: (existing.avgV3 * n + bAvgV3 * m) / newCount,
+                  avgI1: (existing.avgI1 * n + bAvgI1 * m) / newCount,
+                  avgI2: (existing.avgI2 * n + bAvgI2 * m) / newCount,
+                  avgI3: (existing.avgI3 * n + bAvgI3 * m) / newCount,
+                  avgP1: (existing.avgP1 * n + bAvgP1 * m) / newCount,
+                  avgP2: (existing.avgP2 * n + bAvgP2 * m) / newCount,
+                  avgP3: (existing.avgP3 * n + bAvgP3 * m) / newCount,
+
+                  minVoltage: Math.min(existing.minVoltage ?? Infinity, bMinV),
+                  maxVoltage: Math.max(existing.maxVoltage ?? -Infinity, bMaxV),
+                  minCurrent: Math.min(existing.minCurrent ?? Infinity, bMinI),
+                  maxCurrent: Math.max(existing.maxCurrent ?? -Infinity, bMaxI),
+                  minPower: Math.min(existing.minPower ?? Infinity, bMinP),
+                  maxPower: Math.max(existing.maxPower ?? -Infinity, bMaxP),
+                  energyImport: (existing.energyImport || 0) + energyImport
+                }
+              });
+            } else {
+              await tx.hourlyDeviceStats.create({
+                data: {
+                  deviceId, timestamp, count: batchCount,
+                  avgVoltage: bAvgV, avgCurrent: bAvgI, avgPower: bAvgP, avgPF: bAvgPF, avgFreq: bAvgF,
+                  avgV1: bAvgV1, avgV2: bAvgV2, avgV3: bAvgV3,
+                  avgI1: bAvgI1, avgI2: bAvgI2, avgI3: bAvgI3,
+                  avgP1: bAvgP1, avgP2: bAvgP2, avgP3: bAvgP3,
+                  minVoltage: bMinV !== Infinity ? bMinV : null,
+                  maxVoltage: bMaxV !== -Infinity ? bMaxV : null,
+                  minCurrent: bMinI !== Infinity ? bMinI : null,
+                  maxCurrent: bMaxI !== -Infinity ? bMaxI : null,
+                  minPower: bMinP !== Infinity ? bMinP : null,
+                  maxPower: bMaxP !== -Infinity ? bMaxP : null,
+                  energyImport
+                }
+              });
+            }
+          });
         }
+      } catch (err) {
+        this.logger.error(`Failed to update hourly stats for ${deviceId}: ${err.message}`);
+      }
     }
+
+    // NEW: Update Device Status/LastSeen (matching production pattern but safer)
+    try {
+      const deviceIds = Array.from(new Set(batch.map(r => r.deviceId)));
+      await prisma.device.updateMany({
+        where: { id: { in: deviceIds } },
+        data: { lastSeen: new Date() }
+      });
+    } catch (e) {
+      this.logger.warn(`Failed to update lastSeen: ${e.message}`);
+    }
+  }
+
+  private avg(rows: any[], key: string): number {
+    const vals = rows.map(r => r[key]).filter(v => v != null);
+    if (!vals.length) return 0;
+    return vals.reduce((a, b) => a + b, 0) / vals.length;
+  }
+
+  private min(rows: any[], key: string): number {
+    const vals = rows.map(r => r[key]).filter(v => v != null);
+    return vals.length ? Math.min(...vals) : Infinity;
+  }
+
+  private max(rows: any[], key: string): number {
+    const vals = rows.map(r => r[key]).filter(v => v != null);
+    return vals.length ? Math.max(...vals) : -Infinity;
+  }
 }

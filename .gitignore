@@ -56,3 +56,18 @@ pids
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 /generated/prisma
+
+# Data Files
+*.csv
+*.pdf
+/scripts/*.csv
+/scripts/*.pdf
+
+# Temporary and Scratch files
+/scratch
+/tmp
+/temp
+
+# Build and IDE artifacts
+*.tsbuildinfo
+.eslintcache

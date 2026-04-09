@@ -7,19 +7,23 @@ import * as bcrypt from 'bcrypt';
 const prisma = new PrismaClient();
 
 async function main() {
-    const hashedPassword = await bcrypt.hash('admin@123', 10);
+    const adminId = '66fce60c-71bc-40b6-af92-71a243142a32';
+    const hashedPassword = await bcrypt.hash('password@123', 10);
 
     // @ts-ignore
     const user = await prisma.user.upsert({
-        where: { email: 'admin@vatio.io' },
+        where: { email: 'admin@vatio.in' },
         update: { password: hashedPassword },
         create: {
-            email: 'admin@vatio.io',
+            id: adminId,
+            email: 'admin@vatio.in',
             name: 'Vatio Admin',
             password: hashedPassword,
         },
     });
 
+
+
     await prisma.device.upsert({
         where: { id: 'SIM-001' },
         update: {},
@@ -28,7 +32,8 @@ async function main() {
             name: 'Simulator 1 (AC Main)',
             location: 'Factory Floor A',
             type: 'meter',
-            owner: { connect: { id: user.id } },
+            ownerId: user.id,
+
         },
     });
 
@@ -40,7 +45,8 @@ async function main() {
             name: 'Simulator 1 (AC Main)',
             location: 'Factory Floor A',
             type: 'meter',
-            owner: { connect: { id: user.id } },
+            ownerId: user.id,
+
         },
     });
 

@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { TelemetryService } from './telemetry.service';
-import { RedisProvider } from './redis.provider';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { AggregationService } from './aggregation.service';
 import { TelemetryGateway } from './telemetry.gateway';
@@ -8,6 +7,7 @@ import { TelemetryController } from './telemetry.controller';
 import { WsJwtGuard } from '../auth/guards/ws-jwt.guard';
 import { AuthModule } from '../auth/auth.module';
 import { BatchPersistenceService } from './batch-persistence.service';
+import { RetentionService } from './retention.service';
 import { PrismaModule } from '../../prisma/prisma.module';
 
 @Module({
@@ -24,7 +24,7 @@ import { PrismaModule } from '../../prisma/prisma.module';
     AuthModule,
     PrismaModule
   ],
-  providers: [RedisProvider, TelemetryService, AggregationService, TelemetryGateway, WsJwtGuard, BatchPersistenceService],
+  providers: [TelemetryService, AggregationService, TelemetryGateway, WsJwtGuard, BatchPersistenceService, RetentionService],
   controllers: [TelemetryController],
   exports: [TelemetryService],
 })
