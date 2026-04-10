@@ -91,6 +91,84 @@ export class AnalyticsService {
             .reverse();
     }
 
+    async getTelemetryHistory(deviceId: string, start: string, end: string, interval: string) {
+        // Validate interval to prevent SQL injection (though $queryRaw is better, we use date_trunc)
+        const validIntervals = ['1s', '5s', '1m', '5m', '15m', '30m', '1h', '1d'];
+        const pgInterval = validIntervals.includes(interval) ? interval : '5m';
+
+        // We use raw SQL with date_trunc to get accurate high-resolution averages
+        // This fixes the missing THD and Phase-specific PF fields in HourlyDeviceStats
+        const results: any[] = await this.prisma.$queryRawUnsafe(`
+            SELECT 
+                date_trunc('minute', "timestamp") + (EXTRACT(minute FROM "timestamp")::int / 1) * interval '1 minute' as bucket, -- Dynamic bucket placeholder
+                AVG("vAvgLN") as "avgVoltage",
+                AVG("iAvg") as "avgCurrent",
+                AVG("power") as "avgPower",
+                AVG("pfAvg") as "avgPF",
+                AVG("frequency") as "avgFreq",
+                AVG("voltage") as "avgV1",
+                AVG("voltage2") as "avgV2",
+                AVG("voltage3") as "avgV3",
+                AVG("current") as "avgI1",
+                AVG("current2") as "avgI2",
+                AVG("current3") as "avgI3",
+                AVG("power1") as "avgP1",
+                AVG("power2") as "avgP2",
+                AVG("power3") as "avgP3",
+                AVG("pf1") as "avgPF1",
+                AVG("pf2") as "avgPF2",
+                AVG("pf3") as "avgPF3",
+                AVG("vthdL1") as "avgVthd1",
+                AVG("vthdL2") as "avgVthd2",
+                AVG("vthdL3") as "avgVthd3",
+                MIN("power") as "minPower", MAX("power") as "maxPower",
+                MIN("iAvg") as "minCurrent", MAX("iAvg") as "maxCurrent",
+                MIN("vAvgLN") as "minVoltage", MAX("vAvgLN") as "maxVoltage",
+                MAX("vthdL1") as "vthd1Max", MAX("vthdL2") as "vthd2Max", MAX("vthdL3") as "vthd3Max"
+            FROM "Telemetry"
+            WHERE "deviceId" = $1 AND "timestamp" >= $2::timestamp AND "timestamp" <= $3::timestamp
+            GROUP BY 1
+            ORDER BY 1 ASC
+        `, deviceId, new Date(start), new Date(end));
+
+        return results.map(row => ({
+            ts: new Date(row.bucket).getTime(),
+            phase1Voltage: Number(row.avgV1) || 0,
+            phase2Voltage: Number(row.avgV2) || 0,
+            phase3Voltage: Number(row.avgV3) || 0,
+            totalVoltage: Number(row.avgVoltage) || 0,
+            
+            phase1Current: Number(row.avgI1) || 0,
+            phase2Current: Number(row.avgI2) || 0,
+            phase3Current: Number(row.avgI3) || 0,
+            current: Number(row.avgCurrent) || 0,
+            iAvg: Number(row.avgCurrent) || 0,
+
+            phase1Power: Number(row.avgP1) || 0,
+            phase2Power: Number(row.avgP2) || 0,
+            phase3Power: Number(row.avgP3) || 0,
+            power: Number(row.avgPower) || 0,
+
+            powerFactor: Number(row.avgPF) || 0,
+            phase1PF: Number(row.avgPF1) || 0,
+            phase2PF: Number(row.avgPF2) || 0,
+            phase3PF: Number(row.avgPF3) || 0,
+
+            frequency: Number(row.avgFreq) || 0,
+            
+            vthd1: Number(row.avgVthd1) || 0,
+            vthd2: Number(row.avgVthd2) || 0,
+            vthd3: Number(row.avgVthd3) || 0,
+            vthd1Max: Number(row.vthd1Max) || 0,
+            vthd2Max: Number(row.vthd2Max) || 0,
+            vthd3Max: Number(row.vthd3Max) || 0,
+
+            pMin: Number(row.minPower) || 0, pMax: Number(row.maxPower) || 0,
+            iMin: Number(row.minCurrent) || 0, iMax: Number(row.maxCurrent) || 0,
+            vMin: Number(row.minVoltage) || 0, vMax: Number(row.maxVoltage) || 0,
+        }));
+    }
+
     private async fetchFromSummaries(deviceId: string, start: string, end: string) {
         const results = await this.prisma.hourlyDeviceStats.findMany({
             where: {
