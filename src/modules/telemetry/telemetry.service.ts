@@ -3,6 +3,7 @@ import Redis from 'ioredis';
 import { TelemetryDto } from './dto/telemetry.dto';
 import { TelemetryGateway } from './telemetry.gateway';
 import { BatchPersistenceService } from './batch-persistence.service';
+import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
 export class TelemetryService implements OnModuleDestroy { // Added cleanup
@@ -13,7 +14,8 @@ export class TelemetryService implements OnModuleDestroy { // Added cleanup
     constructor(
         @Inject('REDIS_CLIENT') private readonly redis: Redis,
         private readonly gateway: TelemetryGateway,
-        private readonly persistence: BatchPersistenceService
+        private readonly persistence: BatchPersistenceService,
+        private readonly prisma: PrismaService
     ) {
         this.intervalRef = setInterval(() => {
             if (this.ingestionCount > 0) {
