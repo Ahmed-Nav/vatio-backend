@@ -70,7 +70,7 @@ export class AggregationService {
           });
 
           if (existing) {
-            const n = existing.count;
+            const n = existing.count || 0;
             const m = batchCount;
             const newCount = n + m;
 
@@ -123,25 +123,23 @@ export class AggregationService {
                 }
               });
             } catch (fkError) {
-              // If FK constraint fails, it might be due to transaction isolation
-              // For now, just log and skip - aggregation can happen later
-              this.logger.warn(`FK constraint failed for ${deviceId} - skipping aggregation for now: ${fkError.message}`);
-              // Don't throw - let telemetry be saved even if aggregation fails
+              this.logger.warn(`FK constraint or unique constraint failed for ${deviceId} - skipping aggregation group: ${fkError.message}`);
+              if (tx) break;
             }
           }
         } else {
           // Create our own transaction
-          await this.prisma.$transaction(async (tx: any) => {
-            const existing = await tx.hourlyDeviceStats.findUnique({
+          await this.prisma.$transaction(async (innerTx: any) => {
+            const existing = await innerTx.hourlyDeviceStats.findUnique({
               where: { deviceId_timestamp: { deviceId, timestamp } }
             });
 
             if (existing) {
-              const n = existing.count;
+              const n = existing.count || 0;
               const m = batchCount;
               const newCount = n + m;
 
-              await tx.hourlyDeviceStats.update({
+              await innerTx.hourlyDeviceStats.update({
                 where: { id: existing.id },
                 data: {
                   count: newCount,
@@ -172,7 +170,7 @@ export class AggregationService {
                 }
               });
             } else {
-              await tx.hourlyDeviceStats.create({
+              await innerTx.hourlyDeviceStats.create({
                 data: {
                   deviceId, timestamp, count: batchCount,
                   avgVoltage: bAvgV, avgCurrent: bAvgI, avgPower: bAvgP, avgPF: bAvgPF, avgFreq: bAvgF,
@@ -193,6 +191,7 @@ export class AggregationService {
         }
       } catch (err) {
         this.logger.error(`Failed to update hourly stats for ${deviceId}: ${err.message}`);
+        if (tx) break;
       }
     }
 
