@@ -69,6 +69,10 @@ export class AnalyticsService {
                     phase2Power: data.power2 || 0,
                     phase3Power: data.power3 || 0,
                     powerFactor: data.pfAvg || 1,
+                    phase1PF: data.pf1 || 1,
+                    phase2PF: data.pf2 || 1,
+                    phase3PF: data.pf3 || 1,
+                    pfMin: data.pfAvg || 1, pfMax: data.pfAvg || 1,
                     frequency: data.frequency,
                     energyKwh: data.impkwh,
                     solarKwh: data.energyExport || 0,
@@ -139,24 +143,41 @@ export class AnalyticsService {
         });
         if (!device) throw new NotFoundException('Device not found');
 
+        const startDate = start ? new Date(start) : new Date(0);
+        const endDate = end ? new Date(end) : new Date();
+
         if (type === 'hourly') {
-            const results = await this.prisma.hourlyDeviceStats.findMany({
-                where: { deviceId, timestamp: { gte: start ? new Date(start) : undefined, lte: end ? new Date(end) : undefined } },
-                orderBy: { timestamp: 'asc' }
-            });
-            return results.map(r => ({ ts: r.timestamp.getTime(), value: r.energyImport || 0 }));
+            const results: any[] = await this.prisma.$queryRawUnsafe(`
+                SELECT 
+                    date_trunc('hour', "timestamp") as ts,
+                    MAX("impkwh") - MIN("impkwh") as value,
+                    MAX("energyExport") - MIN("energyExport") as solar
+                FROM "Telemetry"
+                WHERE "deviceId" = $1 AND "timestamp" >= $2::timestamp AND "timestamp" <= $3::timestamp
+                GROUP BY 1
+                ORDER BY 1 ASC
+            `, deviceId, startDate, endDate);
+            
+            return results.map(r => ({ ts: new Date(r.ts).getTime(), value: Number(r.value) || 0, solar: Number(r.solar) || 0 }));
         }
 
-        // Default to Daily Summaries
-        const results = await this.prisma.dailyDeviceStats.findMany({
-            where: { deviceId, timestamp: { gte: start ? new Date(start) : undefined, lte: end ? new Date(end) : undefined } },
-            orderBy: { timestamp: 'asc' }
-        });
-        return results.map(r => ({ ts: r.timestamp.getTime(), value: r.energyImport || 0 }));
+        // Daily
+        const results: any[] = await this.prisma.$queryRawUnsafe(`
+            SELECT 
+                date_trunc('day', "timestamp") as ts,
+                MAX("impkwh") - MIN("impkwh") as value,
+                MAX("energyExport") - MIN("energyExport") as solar
+            FROM "Telemetry"
+            WHERE "deviceId" = $1 AND "timestamp" >= $2::timestamp AND "timestamp" <= $3::timestamp
+            GROUP BY 1
+            ORDER BY 1 ASC
+        `, deviceId, startDate, endDate);
+        
+        return results.map(r => ({ ts: new Date(r.ts).getTime(), value: Number(r.value) || 0, solar: Number(r.solar) || 0 }));
     }
 
     /**
-     * Solar Analysis: Uses Summary Tables for instant loading of 30-day profile.
+     * Solar Analysis: Tracks the true load profile using exact interval deltas.
      */
     async getSolarGridProfile(userId: string, deviceId: string) {
         // Security Check
@@ -165,15 +186,23 @@ export class AnalyticsService {
         });
         if (!device) throw new NotFoundException('Device not found');
 
-        // Note: For a "perfect" 24h profile, we average the hourly summaries grouping by the hour of day.
         const results: any[] = await this.prisma.$queryRawUnsafe(`
+            WITH HourlyDeltas AS (
+                SELECT 
+                    date_trunc('hour', "timestamp") as block,
+                    EXTRACT(hour from "timestamp" AT TIME ZONE 'UTC')::int as hour_of_day,
+                    MAX("impkwh") - MIN("impkwh") as block_consumption,
+                    MAX("energyExport") - MIN("energyExport") as block_solar
+                FROM "Telemetry"
+                WHERE "deviceId" = $1 
+                  AND "timestamp" >= date_trunc('day', NOW() - INTERVAL '30 days')
+                GROUP BY 1, 2
+            )
             SELECT 
-                EXTRACT(hour from timestamp AT TIME ZONE 'UTC')::int as hour,
-                AVG("energyImport") as avg_consumption,
-                AVG("energyExport") as avg_solar
-            FROM "HourlyDeviceStats"
-            WHERE "deviceId" = $1 
-              AND "timestamp" >= date_trunc('day', NOW() - INTERVAL '30 days')
+                hour_of_day as hour,
+                AVG(block_consumption) as avg_consumption,
+                AVG(block_solar) as avg_solar
+            FROM HourlyDeltas
             GROUP BY 1
             ORDER BY 1 ASC
         `, deviceId);
