@@ -56,17 +56,31 @@ export class AnalyticsService {
                     phase1Voltage: data.voltage,
                     phase2Voltage: data.voltage2,
                     phase3Voltage: data.voltage3,
-                    totalVoltage: data.vAvgLN,
+                    totalVoltage: data.vAvgLN || data.voltage,
+                    v12: data.vL12 || 0,
+                    v23: data.vL23 || 0,
+                    v31: data.vL31 || 0,
                     current: data.current,
-                    phase1Current: data.current, // Simplified for Redis live view
+                    phase1Current: data.current,
+                    phase2Current: data.current2 || 0,
+                    phase3Current: data.current3 || 0,
                     power: data.power,
                     phase1Power: data.power1,
-                    powerFactor: data.pfAvg,
+                    phase2Power: data.power2 || 0,
+                    phase3Power: data.power3 || 0,
+                    powerFactor: data.pfAvg || 1,
                     frequency: data.frequency,
                     energyKwh: data.impkwh,
-                    pMin: data.power, pMax: data.power, // No bands in raw stream
+                    solarKwh: data.energyExport || 0,
+                    pMin: data.power, pMax: data.power,
                     vMin: data.voltage, vMax: data.voltage,
-                    iMin: data.current, iMax: data.current
+                    iMin: data.current, iMax: data.current,
+                    vthd1: data.vthdL1 || 0,
+                    vthd2: data.vthdL2 || 0,
+                    vthd3: data.vthdL3 || 0,
+                    vthd1Max: data.vthdL1 || 0,
+                    vthd2Max: data.vthdL2 || 0,
+                    vthd3Max: data.vthdL3 || 0,
                 };
             })
             .filter(d => d.ts >= start && d.ts <= end)
