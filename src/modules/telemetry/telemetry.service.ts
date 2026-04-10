@@ -76,8 +76,7 @@ export class TelemetryService implements OnModuleDestroy { // Added cleanup
             // 2. Buffer for Database Persistence (Async)
             await this.persistence.addToBatch(deviceId, new Date(), mappedData);
 
-            // 3. Redis Buffering (Fast Cache)
-            // Reduced MAXLEN to 1000 (~1.5 hours of history) for scalability
+            // 3. Redis Buffering & Device Metadata Update
             await Promise.all([
                 this.redis.xadd(
                     streamKey,
@@ -85,7 +84,12 @@ export class TelemetryService implements OnModuleDestroy { // Added cleanup
                     '*',
                     'payload', JSON.stringify(mappedData)
                 ),
-                this.redis.set(`vatio:latest:${deviceId}`, JSON.stringify(mappedData), 'EX', 86400)
+                this.redis.set(`vatio:latest:${deviceId}`, JSON.stringify(mappedData), 'EX', 86400),
+                // Update Device Last Seen & Status
+                this.prisma.device.update({
+                    where: { id: deviceId },
+                    data: { lastSeen: new Date(), status: 'active' }
+                }).catch(() => {/* Ignore if device not registered yet */})
             ]);
 
             // 4. Emit "Instant" update to UI
