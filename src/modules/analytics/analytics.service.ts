@@ -254,9 +254,6 @@ export class AnalyticsService {
         return results.map(r => ({ ts: new Date(r.ts).getTime(), value: Number(r.value) || 0, solar: Number(r.solar) || 0 }));
     }
 
-    /**
-     * Solar Analysis: Tracks the true load profile using exact interval deltas.
-     */
     async getSolarGridProfile(userId: string, deviceId: string) {
         // Security Check
         const device = await this.prisma.device.findFirst({
@@ -264,31 +261,43 @@ export class AnalyticsService {
         });
         if (!device) throw new NotFoundException('Device not found');
 
-        const results: any[] = await this.prisma.$queryRawUnsafe(`
-            WITH HourlyDeltas AS (
-                SELECT 
-                    date_trunc('hour', "timestamp") as block,
-                    EXTRACT(hour from "timestamp" AT TIME ZONE 'UTC')::int as hour_of_day,
-                    MAX("impkwh") - MIN("impkwh") as block_consumption,
-                    MAX("energyExport") - MIN("energyExport") as block_solar
-                FROM "Telemetry"
-                WHERE "deviceId" = $1 
-                  AND "timestamp" >= date_trunc('day', NOW() - INTERVAL '30 days')
-                GROUP BY 1, 2
-            )
-            SELECT 
-                hour_of_day as hour,
-                AVG(block_consumption) as avg_consumption,
-                AVG(block_solar) as avg_solar
-            FROM HourlyDeltas
-            GROUP BY 1
-            ORDER BY 1 ASC
-        `, deviceId);
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        thirtyDaysAgo.setHours(0, 0, 0, 0);
 
-        return results.map(r => ({
-            hour: r.hour,
-            consumption: Number(r.avg_consumption) || 0,
-            solar: Number(r.avg_solar) || 0
+        // Fetch hourly summaries for the last 30 days (much faster than raw Telemetry)
+        const stats = await this.prisma.hourlyDeviceStats.findMany({
+            where: {
+                deviceId,
+                timestamp: { gte: thirtyDaysAgo }
+            },
+            select: {
+                timestamp: true,
+                energyImport: true,
+                energyExport: true
+            }
+        });
+
+        // Initialize buckets for 24 hours
+        const hourlyBuckets = Array.from({ length: 24 }, (_, i) => ({
+            hour: i,
+            sumConsumption: 0,
+            sumSolar: 0,
+            count: 0
+        }));
+
+        // Aggregate by hour of day
+        stats.forEach(s => {
+            const h = s.timestamp.getHours();
+            hourlyBuckets[h].sumConsumption += (s.energyImport || 0);
+            hourlyBuckets[h].sumSolar += (s.energyExport || 0);
+            hourlyBuckets[h].count += 1;
+        });
+
+        return hourlyBuckets.map(b => ({
+            hour: b.hour,
+            consumption: b.count > 0 ? Number((b.sumConsumption / b.count).toFixed(4)) : 0,
+            solar: b.count > 0 ? Number((b.sumSolar / b.count).toFixed(4)) : 0
         }));
     }
 }

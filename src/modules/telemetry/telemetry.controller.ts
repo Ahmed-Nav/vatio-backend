@@ -30,4 +30,9 @@ export class TelemetryController {
     async getLatest(@Param('deviceId') deviceId: string) {
         return this.telemetryService.getLatest(deviceId);
     }
+
+    @Get(':deviceId/activity')
+    async getActivity(@Param('deviceId') deviceId: string) {
+        return this.telemetryService.getActivityLog(deviceId);
+    }
 }

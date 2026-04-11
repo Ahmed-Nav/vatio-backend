@@ -58,9 +58,23 @@ export class AggregationService {
       const bMinP = this.min(rows, 'power');
       const bMaxP = this.max(rows, 'power');
 
-      const bMaxE = this.max(rows, 'impkwh');
-      const bMinE = this.min(rows, 'impkwh');
-      const energyImport = bMaxE - bMinE;
+      // Robust Energy Delta (Sum of positive increments)
+      const sortedRows = rows
+        .filter(r => r.impkwh != null)
+        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      
+      let energyImport = 0;
+      for (let i = 1; i < sortedRows.length; i++) {
+        const prev = sortedRows[i - 1].impkwh;
+        const curr = sortedRows[i].impkwh;
+        const delta = curr - prev;
+        
+        // Only count if it's a realistic increase (e.g., < 100 kWh jump between messages)
+        // and ignore backward jumps (resets).
+        if (delta > 0 && delta < 100) {
+          energyImport += delta;
+        }
+      }
 
       try {
         if (tx) {
@@ -101,7 +115,7 @@ export class AggregationService {
                 maxCurrent: Math.max(existing.maxCurrent ?? -Infinity, bMaxI),
                 minPower: Math.min(existing.minPower ?? Infinity, bMinP),
                 maxPower: Math.max(existing.maxPower ?? -Infinity, bMaxP),
-                energyImport: (existing.energyImport || 0) + energyImport
+                energyImport: Number(((existing.energyImport || 0) + energyImport).toFixed(4))
               }
             });
           } else {
@@ -119,7 +133,7 @@ export class AggregationService {
                   maxCurrent: bMaxI !== -Infinity ? bMaxI : null,
                   minPower: bMinP !== Infinity ? bMinP : null,
                   maxPower: bMaxP !== -Infinity ? bMaxP : null,
-                  energyImport
+                  energyImport: Number(energyImport.toFixed(4))
                 }
               });
             } catch (fkError) {
@@ -166,7 +180,7 @@ export class AggregationService {
                   maxCurrent: Math.max(existing.maxCurrent ?? -Infinity, bMaxI),
                   minPower: Math.min(existing.minPower ?? Infinity, bMinP),
                   maxPower: Math.max(existing.maxPower ?? -Infinity, bMaxP),
-                  energyImport: (existing.energyImport || 0) + energyImport
+                  energyImport: Number(((existing.energyImport || 0) + energyImport).toFixed(4))
                 }
               });
             } else {
@@ -183,7 +197,7 @@ export class AggregationService {
                   maxCurrent: bMaxI !== -Infinity ? bMaxI : null,
                   minPower: bMinP !== Infinity ? bMinP : null,
                   maxPower: bMaxP !== -Infinity ? bMaxP : null,
-                  energyImport
+                  energyImport: Number(energyImport.toFixed(4))
                 }
               });
             }

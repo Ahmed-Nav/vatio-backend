@@ -31,5 +31,41 @@ export class RetentionService {
     } catch (err) {
       this.logger.error(`Pruning failed: ${err.message}`);
     }
+
+  /**
+   * Heartbeat task: Runs every minute.
+   * Marks devices as offline if they haven't been seen in > 2 minutes.
+   */
+  @Cron(CronExpression.EVERY_MINUTE)
+  async checkDeviceLiveness() {
+    const twoMinutesAgo = new Date(Date.now() - 120000);
+    
+    try {
+      const offlineDevices = await this.prisma.device.findMany({
+        where: {
+          status: 'online',
+          lastSeen: { lt: twoMinutesAgo }
+        }
+      });
+
+      if (offlineDevices.length > 0) {
+        this.logger.log(`Marking ${offlineDevices.length} devices as offline.`);
+        for (const device of offlineDevices) {
+          await this.prisma.device.update({
+            where: { id: device.id },
+            data: { 
+              status: 'offline', 
+              offlineSince: new Date() 
+            }
+          });
+          
+          await this.prisma.deviceActivityLog.create({
+            data: { deviceId: device.id, status: 'offline' }
+          });
+        }
+      }
+    } catch (err) {
+      this.logger.error(`Heartbeat task failed: ${err.message}`);
+    }
   }
 }

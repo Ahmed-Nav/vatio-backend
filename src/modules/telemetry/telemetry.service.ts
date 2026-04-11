@@ -78,21 +78,39 @@ export class TelemetryService implements OnModuleDestroy { // Added cleanup
             // 2. Buffer for Database Persistence (Async)
             await this.persistence.addToBatch(deviceId, new Date(), mappedData);
 
-            // 3. Redis Buffering & Device Metadata Update
-            await Promise.all([
-                this.redis.xadd(
-                    streamKey,
-                    'MAXLEN', '~', 1000,
-                    '*',
-                    'payload', JSON.stringify(mappedData)
-                ),
+            // 3. Redis Buffering & Metadata Updates
+            const isOnlineKey = `vatio:device:status:${deviceId}`;
+            const wasOnline = await this.redis.get(isOnlineKey);
+            
+            const updates: Promise<any>[] = [
+                this.redis.xadd(streamKey, 'MAXLEN', '~', 1000, '*', 'payload', JSON.stringify(mappedData)),
                 this.redis.set(`vatio:latest:${deviceId}`, JSON.stringify(mappedData), 'EX', 86400),
-                // Update Device Last Seen & Status
-                this.prisma.device.update({
+                this.redis.set(isOnlineKey, '1', 'EX', 120), // 2 min expiration for heartbeat
+            ];
+
+            if (wasOnline !== '1') {
+                // Transitioning from Offline to Online
+                updates.push(this.prisma.device.update({
                     where: { id: deviceId },
-                    data: { lastSeen: new Date(), status: 'active' }
-                }).catch(() => {/* Ignore if device not registered yet */})
-            ]);
+                    data: { 
+                        status: 'online', 
+                        onlineSince: new Date(),
+                        lastSeen: new Date()
+                    }
+                }).then(() => {
+                    return this.prisma.deviceActivityLog.create({
+                        data: { deviceId, status: 'online' }
+                    });
+                }).catch(() => {}));
+            } else {
+                // Already online, just update lastSeen
+                updates.push(this.prisma.device.update({
+                    where: { id: deviceId },
+                    data: { lastSeen: new Date(), status: 'online' }
+                }).catch(() => {}));
+            }
+
+            await Promise.all(updates);
 
             // 4. Emit "Instant" update to UI
             this.gateway.sendUpdate(deviceId, {
@@ -123,6 +141,15 @@ export class TelemetryService implements OnModuleDestroy { // Added cleanup
         } catch (e) {
             return null;
         }
+    }
+
+
+    async getActivityLog(deviceId: string) {
+        return this.prisma.deviceActivityLog.findMany({
+            where: { deviceId },
+            orderBy: { timestamp: 'desc' },
+            take: 20
+        });
     }
 
     onModuleDestroy() {

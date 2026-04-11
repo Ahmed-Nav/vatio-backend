@@ -29,6 +29,8 @@ model Device {
   lastSeen    DateTime?   @map("last_seen")
   ownerId     String
   createdAt   DateTime    @default(now())
+  onlineSince DateTime?   @map("online_since")
+  offlineSince DateTime?  @map("offline_since")
   alerts      Alert[]
   hourlyStats HourlyDeviceStats[]
   dailyStats  DailyDeviceStats[]
@@ -166,4 +168,14 @@ model DailyDeviceStats {
 
   @@unique([deviceId, timestamp])
   @@index([timestamp])
+}
+
+model DeviceActivityLog {
+  id        String   @id @default(uuid())
+  deviceId  String
+  status    String   // 'online', 'offline'
+  timestamp DateTime @default(now())
+  device    Device   @relation(fields: [deviceId], references: [id])
+
+  @@index([deviceId, timestamp])
 }
