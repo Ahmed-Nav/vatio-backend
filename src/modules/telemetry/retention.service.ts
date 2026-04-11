@@ -31,6 +31,7 @@ export class RetentionService {
     } catch (err) {
       this.logger.error(`Pruning failed: ${err.message}`);
     }
+  }
 
   /**
    * Heartbeat task: Runs every minute.
