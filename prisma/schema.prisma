@@ -19,23 +19,24 @@ model User {
 }
 
 model Device {
-  id          String      @id
-  name        String
-  location    String?
-  type        String?
-  status      String      @default("active")
-  hwVersion   String?     @map("hw_version")
-  fwVersion   String?     @map("fw_version")
-  lastSeen    DateTime?   @map("last_seen")
-  ownerId     String
-  createdAt   DateTime    @default(now())
-  onlineSince DateTime?   @map("online_since")
-  offlineSince DateTime?  @map("offline_since")
-  alerts      Alert[]
-  hourlyStats HourlyDeviceStats[]
-  dailyStats  DailyDeviceStats[]
-  owner       User        @relation(fields: [ownerId], references: [id])
-  telemetries Telemetry[]
+  id           String              @id
+  name         String
+  location     String?
+  type         String?
+  status       String              @default("active")
+  hwVersion    String?             @map("hw_version")
+  fwVersion    String?             @map("fw_version")
+  lastSeen     DateTime?           @map("last_seen")
+  ownerId      String
+  createdAt    DateTime            @default(now())
+  onlineSince  DateTime?           @map("online_since")
+  offlineSince DateTime?           @map("offline_since")
+  alerts       Alert[]
+  hourlyStats  HourlyDeviceStats[]
+  dailyStats   DailyDeviceStats[]
+  owner        User                @relation(fields: [ownerId], references: [id])
+  activityLogs DeviceActivityLog[]
+  telemetries  Telemetry[]
 
   @@index([lastSeen])
 }
@@ -173,7 +174,7 @@ model DailyDeviceStats {
 model DeviceActivityLog {
   id        String   @id @default(uuid())
   deviceId  String
-  status    String   // 'online', 'offline'
+  status    String // 'online', 'offline'
   timestamp DateTime @default(now())
   device    Device   @relation(fields: [deviceId], references: [id])
 
