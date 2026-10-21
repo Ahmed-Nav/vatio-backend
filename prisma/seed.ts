@@ -19,11 +19,12 @@ async function main() {
 
     const user = await prisma.user.upsert({
         where: { email: 'admin@vatio.com' },
-        update: {},
+        update: { role: 'admin' },
         create: {
             email: 'admin@vatio.com',
             name: 'Vatio Admin',
             password: hashedPassword,
+            role: 'admin',
         },
     });
 

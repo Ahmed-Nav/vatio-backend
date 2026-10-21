@@ -20,15 +20,15 @@ export class DeviceService {
         });
     }
 
-    async findAll(ownerId: string) {
+    async findAll(ownerId: string, role?: string) {
         return this.prisma.device.findMany({
-            where: { ownerId },
+            where: role === 'admin' ? {} : { ownerId },
         });
     }
 
-    async findOne(ownerId: string, deviceId: string) {
+    async findOne(ownerId: string, deviceId: string, role?: string) {
         const device = await this.prisma.device.findFirst({
-            where: { id: deviceId, ownerId },
+            where: role === 'admin' ? { id: deviceId } : { id: deviceId, ownerId },
         });
         if (!device) {
             throw new NotFoundException({

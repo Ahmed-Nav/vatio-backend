@@ -2,7 +2,7 @@ import { Injectable, Inject, Logger, OnModuleDestroy } from '@nestjs/common';
 import { Ctx, MessagePattern, Payload, MqttContext } from '@nestjs/microservices';
 import Redis from 'ioredis';
 import { TelemetryDto } from './dto/telemetry.dto';
-import { PrismaService } from 'src/prisma/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
 export class TelemetryService implements OnModuleDestroy { // Added cleanup

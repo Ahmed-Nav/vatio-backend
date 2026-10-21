@@ -4,12 +4,17 @@ import json
 import time
 import random
 
-# Based on vatio.ino TOPIC_DATA 
-MQTT_BROKER = "localhost" 
-MQTT_TOPIC = "vatio/devices/DEV-001/telemetry"
+MQTT_BROKER = "127.0.0.1" 
+MQTT_TOPIC = "vatio/DEV-001/rs485"
+
+GREEN = "\033[92m"
+CYAN = "\033[96m"
+YELLOW = "\033[93m"
+RESET = "\033[0m"
 
 client = mqtt.Client(callback_api_version=CallbackAPIVersion.VERSION2, client_id="Simulator_Node")
 client.connect(MQTT_BROKER, 1883)
+print(f"{GREEN}[simulator]{RESET} Connected to broker at {MQTT_BROKER}:1883", flush=True)
 
 while True:
     # Mimicking the sendDat() structure from vatio.ino 
@@ -25,5 +30,5 @@ while True:
     }
     
     client.publish(MQTT_TOPIC, json.dumps(payload))
-    print(f"Published to {MQTT_TOPIC}: {payload}")
+    print(f"{GREEN}[simulator]{RESET} Published to {CYAN}{MQTT_TOPIC}{RESET}: {YELLOW}{payload}{RESET}", flush=True)
     time.sleep(5) # Simulate the polling delay in the loop()

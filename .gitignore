@@ -56,3 +56,6 @@ pids
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 /generated/prisma
+
+# Dev-only simulator persisted counter state (scripts/telemetry-simulator.js)
+scripts/.simulator-state.json

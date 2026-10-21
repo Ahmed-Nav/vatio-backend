@@ -12,6 +12,15 @@ model User {
   name      String?
   password  String
   role      String   @default("user")
+  phone     String?
+  address1  String?
+  address2  String?
+  city      String?
+  pincode   String?
+  enabled       Boolean  @default(true)
+  accountStatus String   @default("Active")
+  paymentStatus String   @default("Unpaid")
+  lastLogin     DateTime?
   devices   Device[]
   createdAt DateTime @default(now())
 }

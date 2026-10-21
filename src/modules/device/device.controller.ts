@@ -14,12 +14,12 @@ export class DeviceController {
 
     @Get()
     async getMyDevices(@Req() req) {
-        return this.deviceService.findAll(req.user.userId);
+        return this.deviceService.findAll(req.user.userId, req.user.role);
     }
 
     @Get(':id')
     async getDevice(@Req() req, @Param('id') id: string) {
-        return this.deviceService.findOne(req.user.userId, id);
+        return this.deviceService.findOne(req.user.userId, id, req.user.role);
     }
 
     @Patch(':id')

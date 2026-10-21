@@ -10,7 +10,10 @@ import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { DeviceModule } from './modules/device/device.module';
 import { AlertModule } from './modules/alert/alert.module';
 import { APP_GUARD } from '@nestjs/core';
-import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
+import { SessionAuthGuard } from './modules/auth/guards/session-auth.guard';
+import { CsrfGuard } from './modules/auth/guards/csrf.guard';
+import { RolesGuard } from './modules/auth/guards/roles.guard';
+import { UserModule } from './modules/user/user.module';
 
 @Module({
   imports: [
@@ -23,14 +26,23 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
     AnalyticsModule,
     DeviceModule,
     AlertModule,
+    UserModule,
   ],
   controllers: [AppController],
   providers: [
     AppService,
     {
       provide: APP_GUARD,
-      useClass: JwtAuthGuard,
+      useClass: SessionAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: CsrfGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard,
     },
   ],
 })
-export class AppModule { }
+export class AppModule {}
