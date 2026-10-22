@@ -4,6 +4,9 @@ import { REDIS_CLIENT } from './redis.provider';
 import { TelemetryUpdate } from './interfaces/telemetry.interface';
 import { BatchPersistenceService } from './batch-persistence.service';
 import { TelemetryGateway } from './telemetry.gateway';
+// No normalization needed here — TelemetryService.ingestData already
+// normalizes field names before pushing onto the Redis stream this service
+// reads from, so every message it sees already carries canonical keys.
 
 @Injectable()
 export class AggregationService implements OnModuleInit, OnModuleDestroy {

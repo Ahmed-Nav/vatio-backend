@@ -5,6 +5,7 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
 import { AggregationService } from './aggregation.service';
 import { TelemetryGateway } from './telemetry.gateway';
 import { TelemetryController } from './telemetry.controller';
+import { TelemetryLatestController } from './telemetry-latest.controller';
 import { WsSessionGuard } from '../auth/guards/ws-session.guard';
 import { AuthModule } from '../auth/auth.module';
 import { BatchPersistenceService } from './batch-persistence.service';
@@ -30,7 +31,7 @@ import { BatchPersistenceService } from './batch-persistence.service';
     WsSessionGuard,
     BatchPersistenceService,
   ],
-  controllers: [TelemetryController],
+  controllers: [TelemetryController, TelemetryLatestController],
   exports: [TelemetryService],
 })
 export class TelemetryModule {}

@@ -1,5 +1,7 @@
 import {
+  BadRequestException,
   ConflictException,
+  ForbiddenException,
   HttpException,
   HttpStatus,
   Injectable,
@@ -15,6 +17,8 @@ import * as bcrypt from 'bcrypt';
 import { createHmac, randomInt, timingSafeEqual } from 'crypto';
 import { SessionService } from './session.service';
 import { RegisterDto } from './dto/register.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { AuditService } from '../audit/audit.service';
 
 const OTP_TTL_SECONDS = 300; // 5 minutes
 const OTP_MAX_ATTEMPTS = 5;
@@ -33,7 +37,18 @@ export class AuthService {
     private prisma: PrismaService,
     private readonly sessions: SessionService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly audit: AuditService,
   ) {}
+
+  /** Hard-disabled accounts can't sign in at all. Suspended/pending ones can (to pay), but see no data. */
+  private assertNotDisabled(user: { enabled: boolean; role: string }) {
+    if (user.role !== 'admin' && !user.enabled) {
+      throw new ForbiddenException({
+        code: 'ACCOUNT_DISABLED',
+        message: 'Your account has been disabled. Contact your administrator.',
+      });
+    }
+  }
 
   private otpKey(email: string) {
     return `vatio:otp:${email.toLowerCase().trim()}`;
@@ -67,6 +82,7 @@ export class AuthService {
     if (!user || !(await bcrypt.compare(pass, user.password))) {
       throw new UnauthorizedException('Invalid credentials');
     }
+    this.assertNotDisabled(user);
 
     return this.issueOtp(email);
   }
@@ -86,6 +102,10 @@ export class AuthService {
       if (!device) {
         throw new NotFoundException('Invalid Device ID');
       }
+      // A device that already has an owner can only be re-assigned by an admin.
+      if (device.ownerId) {
+        throw new ConflictException('This device is already registered to another account');
+      }
     }
 
     const hashed = await bcrypt.hash(dto.password, 10);
@@ -99,14 +119,22 @@ export class AuthService {
         address2: dto.address2,
         city: dto.city,
         pincode: dto.pincode,
+        // New sign-ups wait for admin approval before they can see any data.
+        accountStatus: 'Pending',
+        paymentStatus: 'Pending',
       },
     });
 
     if (dto.deviceId) {
-      await this.prisma.device.update({
-        where: { id: dto.deviceId },
+      // updateMany + ownerId:null makes the claim atomic if two people race for one device.
+      const claimed = await this.prisma.device.updateMany({
+        where: { id: dto.deviceId, ownerId: null },
         data: { ownerId: user.id },
       });
+      if (claimed.count === 0) {
+        await this.prisma.user.delete({ where: { id: user.id } });
+        throw new ConflictException('This device is already registered to another account');
+      }
     }
 
     return this.issueOtp(dto.email);
@@ -166,6 +194,9 @@ export class AuthService {
       ].join('\n');
 
       console.log(box);
+
+      // Testing aid only: never returned in production.
+      return { message: 'OTP sent', devOtp: otp };
     }
 
     return { message: 'OTP sent' };
@@ -206,6 +237,7 @@ export class AuthService {
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
     }
+    this.assertNotDisabled(user);
 
     await this.prisma.user.update({
       where: { id: user.id },
@@ -225,12 +257,97 @@ export class AuthService {
       sessionToken: session.token,
       csrfToken: session.csrfToken,
       expiresAt: new Date(session.record.absoluteExpiresAt).toISOString(),
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-      },
+      user: await this.getProfile(user.id),
     };
+  }
+
+  /** Fresh profile + billing summary for the signed-in user (the session only holds a snapshot). */
+  async getProfile(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        plan: true,
+        devices: { select: { id: true }, orderBy: { createdAt: 'asc' } },
+      },
+    });
+    if (!user) throw new UnauthorizedException('Session expired or invalid');
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      phone: user.phone,
+      address1: user.address1,
+      address2: user.address2,
+      city: user.city,
+      pincode: user.pincode,
+      enabled: user.enabled,
+      accountStatus: user.accountStatus,
+      paymentStatus: user.paymentStatus,
+      paidUntil: user.paidUntil,
+      plan: user.plan
+        ? { id: user.plan.id, name: user.plan.name, period: user.plan.period, amount: user.plan.amount }
+        : null,
+      lastLogin: user.lastLogin,
+      deviceId: user.devices[0]?.id ?? null,
+      deviceIds: user.devices.map((d) => d.id),
+    };
+  }
+
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+    const data = Object.fromEntries(
+      Object.entries(dto).filter(([, v]) => v !== undefined),
+    ) as UpdateProfileDto;
+    if (Object.keys(data).length === 0) {
+      throw new BadRequestException('Nothing to update');
+    }
+    if (data.name !== undefined && !data.name.trim()) {
+      throw new BadRequestException('Name is required');
+    }
+    await this.prisma.user.update({ where: { id: userId }, data });
+    return { user: await this.getProfile(userId) };
+  }
+
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+    currentSessionToken?: string,
+  ) {
+    // Slow down guessing of the current password: 5 wrong attempts per 15 minutes.
+    const key = `vatio:pwchange-fail:${userId}`;
+    const fails = Number((await this.redis.get(key)) || 0);
+    if (fails >= 5) {
+      throw new HttpException(
+        'Too many incorrect attempts. Try again in a few minutes.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException('Session expired or invalid');
+
+    if (!(await bcrypt.compare(currentPassword, user.password))) {
+      await this.redis.multi().incr(key).expire(key, 15 * 60).exec();
+      throw new BadRequestException('Your current password is incorrect');
+    }
+    if (await bcrypt.compare(newPassword, user.password)) {
+      throw new BadRequestException('Choose a password different from your current one');
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { password: await bcrypt.hash(newPassword, 10) },
+    });
+    await this.redis.del(key);
+    // Anyone else signed in with the old password is signed out; this session stays.
+    await this.sessions.revokeOthers(userId, currentSessionToken);
+    await this.audit.record({
+      actorId: userId,
+      action: 'auth.change_password',
+      targetType: 'user',
+      targetId: userId,
+    });
+    return { message: 'Password changed' };
   }
 }

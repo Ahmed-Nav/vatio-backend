@@ -21,7 +21,11 @@ model User {
   accountStatus String   @default("Active")
   paymentStatus String   @default("Unpaid")
   lastLogin     DateTime?
+  paidUntil     DateTime?
+  planId        String?
+  plan          Plan?     @relation(fields: [planId], references: [id])
   devices   Device[]
+  payments  Payment[]
   createdAt DateTime @default(now())
 }
 
@@ -34,8 +38,9 @@ model Device {
   hwVersion    String?     @map("hw_version")
   fwVersion    String?     @map("fw_version")
   lastSeen     DateTime?   @map("last_seen")
-  ownerId      String
-  owner        User        @relation(fields: [ownerId], references: [id])
+  enabled      Boolean     @default(true)
+  ownerId      String?
+  owner        User?       @relation(fields: [ownerId], references: [id])
   telemetries  Telemetry[]
   alerts       Alert[]
   createdAt    DateTime    @default(now())
@@ -67,4 +72,57 @@ model Alert {
   createdAt    DateTime @default(now())
 
   @@index([deviceId])
+}
+// ─── Billing ────────────────────────────────────────────────────────────────
+
+model Plan {
+  id           String    @id @default(uuid())
+  name         String
+  period       String    // monthly | quarterly | yearly
+  amount       Int       // whole rupees
+  durationDays Int
+  badge        String?   // e.g. "Save 15%"
+  active       Boolean   @default(true)
+  sortOrder    Int       @default(0)
+  users        User[]
+  payments     Payment[]
+}
+
+// One row per attempt: Created (order opened) -> Paid | Failed. Offline = admin marked paid.
+model Payment {
+  id               String    @id @default(uuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id])
+  planId           String?
+  plan             Plan?     @relation(fields: [planId], references: [id])
+  amount           Int
+  status           String    @default("Created") // Created | Paid | Failed | Refunded
+  method           String    @default("online")  // online | offline
+  gateway          String?
+  gatewayOrderId   String?   @unique
+  gatewayPaymentId String?   @unique
+  note             String?
+  createdAt        DateTime  @default(now())
+  paidAt           DateTime?
+
+  @@index([userId, createdAt])
+  @@index([status])
+}
+
+model Setting {
+  key   String @id
+  value String
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String?
+  action     String
+  targetType String
+  targetId   String
+  meta       Json?
+  createdAt  DateTime @default(now())
+
+  @@index([targetType, targetId])
+  @@index([createdAt])
 }

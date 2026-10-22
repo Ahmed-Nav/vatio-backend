@@ -178,4 +178,19 @@ export class SessionService {
     await pipeline.exec();
     this.logger.log(`All sessions revoked for user ${userId}`);
   }
+
+  /** Revoke every session of a user except the one identified by `keepToken`. */
+  async revokeOthers(userId: string, keepToken?: string) {
+    const userKey = this.userSessionsKey(userId);
+    const keepHash = keepToken ? this.hash(keepToken) : null;
+    const hashes = (await this.redis.smembers(userKey)).filter((h) => h !== keepHash);
+    if (hashes.length === 0) return;
+    const pipeline = this.redis.multi();
+    hashes.forEach((tokenHash) => {
+      pipeline.del(this.sessionKey(tokenHash));
+      pipeline.srem(userKey, tokenHash);
+    });
+    await pipeline.exec();
+    this.logger.log(`Other sessions revoked for user ${userId}`);
+  }
 }

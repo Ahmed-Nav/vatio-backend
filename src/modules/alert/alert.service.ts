@@ -8,7 +8,7 @@ export class AlertService {
     async getAlerts(userId: string) {
         return this.prisma.alert.findMany({
             where: {
-                device: { ownerId: userId },
+                device: { ownerId: userId, enabled: true },
                 acknowledged: false,
             },
             orderBy: { createdAt: 'desc' },

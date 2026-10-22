@@ -8,6 +8,7 @@ import {
   Res,
   Get,
   Header,
+  Put,
 } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AuthService } from './auth.service';
@@ -15,6 +16,9 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { Public } from './decorators/public.decorator';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
+import { AllowRestricted } from '../access/access.service';
 import { SessionService } from './session.service';
 import {
   getSessionCookieClearOptions,
@@ -33,6 +37,7 @@ interface RequestWithHeaders {
   headers: Record<string, string | string[] | undefined>;
 }
 
+@AllowRestricted()
 @Controller('auth')
 export class AuthController {
   constructor(
@@ -87,17 +92,31 @@ export class AuthController {
   @Get('session')
   @HttpCode(HttpStatus.OK)
   @Header('Cache-Control', 'no-store')
-  getSession(@Req() req: AuthenticatedRequest) {
+  async getSession(@Req() req: AuthenticatedRequest) {
     return {
-      user: {
-        id: req.user.userId,
-        email: req.user.email,
-        name: req.user.name,
-        role: req.user.role,
-      },
+      user: await this.authService.getProfile(req.user.userId),
       csrfToken: this.sessions.getCsrfToken(req.vatioSession.sessionId),
       expiresAt: new Date(req.vatioSession.absoluteExpiresAt).toISOString(),
     };
+  }
+
+  @Put('profile')
+  @HttpCode(HttpStatus.OK)
+  @Header('Cache-Control', 'no-store')
+  updateProfile(@Req() req: AuthenticatedRequest, @Body() dto: UpdateProfileDto) {
+    return this.authService.updateProfile(req.user.userId, dto);
+  }
+
+  @Post('change-password')
+  @HttpCode(HttpStatus.OK)
+  @Header('Cache-Control', 'no-store')
+  changePassword(@Req() req: AuthenticatedRequest, @Body() dto: ChangePasswordDto) {
+    return this.authService.changePassword(
+      req.user.userId,
+      dto.currentPassword,
+      dto.newPassword,
+      req.vatioSessionToken,
+    );
   }
 
   @Post('logout')

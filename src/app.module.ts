@@ -14,6 +14,9 @@ import { SessionAuthGuard } from './modules/auth/guards/session-auth.guard';
 import { CsrfGuard } from './modules/auth/guards/csrf.guard';
 import { RolesGuard } from './modules/auth/guards/roles.guard';
 import { UserModule } from './modules/user/user.module';
+import { BillingModule } from './modules/billing/billing.module';
+import { AuditModule } from './modules/audit/audit.service';
+import { AccessGuard, AccessModule } from './modules/access/access.service';
 
 @Module({
   imports: [
@@ -27,6 +30,9 @@ import { UserModule } from './modules/user/user.module';
     DeviceModule,
     AlertModule,
     UserModule,
+    AuditModule,
+    AccessModule,
+    BillingModule,
   ],
   controllers: [AppController],
   providers: [
@@ -42,6 +48,10 @@ import { UserModule } from './modules/user/user.module';
     {
       provide: APP_GUARD,
       useClass: RolesGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: AccessGuard,
     },
   ],
 })

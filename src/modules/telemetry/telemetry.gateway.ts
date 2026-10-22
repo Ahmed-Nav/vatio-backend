@@ -22,6 +22,7 @@ import { SessionService } from '../auth/session.service';
 import { getSessionCookieName } from '../auth/session.config';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { TelemetryUpdate } from './interfaces/telemetry.interface';
+import { AccessService } from '../access/access.service';
 
 @WebSocketGateway({
   cors: {
@@ -48,6 +49,7 @@ export class TelemetryGateway
   constructor(
     private readonly sessions: SessionService,
     private readonly prisma: PrismaService,
+    private readonly access: AccessService,
   ) {}
 
   onModuleInit() {
@@ -100,12 +102,19 @@ export class TelemetryGateway
   async handleJoinDevice(client: VatioSocket, deviceId: string) {
     const device = await this.prisma.device.findUnique({
       where: { id: deviceId },
-      select: { ownerId: true },
+      select: { ownerId: true, enabled: true },
     });
     const user = client.data.user;
     if (!user) throw new WsException('Unauthorized');
     if (!device || (user.role !== 'admin' && device.ownerId !== user.userId)) {
       throw new WsException('Device not found or unauthorized');
+    }
+    // Suspended / unpaid accounts and switched-off devices get no live data.
+    try {
+      await this.access.assertDataAccess(user.userId, user.role);
+      this.access.assertDeviceEnabled(device, user.role);
+    } catch (err) {
+      throw new WsException((err as Error).message);
     }
     await client.join(`device_${deviceId}`);
     this.logger.log(`Client ${client.id} joined room: device_${deviceId}`);

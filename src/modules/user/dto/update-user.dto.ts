@@ -1,9 +1,10 @@
-import { IsBoolean, IsIn, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsDateString, IsIn, IsOptional, IsString } from 'class-validator';
 
 export class UpdateUserDto {
+  // Claims this device for the user (a user can own several; use PATCH /devices/:id/owner to unassign)
   @IsOptional()
   @IsString()
-  deviceId?: string;
+  deviceId?: string | null;
 
   @IsOptional()
   @IsBoolean()
@@ -14,6 +15,15 @@ export class UpdateUserDto {
   accountStatus?: string;
 
   @IsOptional()
-  @IsIn(['Paid', 'Unpaid', 'Overdue'])
+  @IsIn(['Paid', 'Unpaid', 'Overdue', 'Pending'])
   paymentStatus?: string;
+
+  // Admin "extend due date"
+  @IsOptional()
+  @IsDateString()
+  paidUntil?: string;
+
+  @IsOptional()
+  @IsString()
+  planId?: string;
 }

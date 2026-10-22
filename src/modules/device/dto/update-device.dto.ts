@@ -1,4 +1,4 @@
-import { IsString, IsOptional } from 'class-validator';
+import { IsBoolean, IsOptional, IsString } from 'class-validator';
 
 export class UpdateDeviceDto {
     @IsString()
@@ -12,4 +12,9 @@ export class UpdateDeviceDto {
     @IsString()
     @IsOptional()
     status?: string;
+
+    // Admin switch: a disabled device stops streaming and is hidden from its owner's data views
+    @IsBoolean()
+    @IsOptional()
+    enabled?: boolean;
 }

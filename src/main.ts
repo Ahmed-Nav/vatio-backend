@@ -17,6 +17,7 @@ async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
     new FastifyAdapter({ logger: true }),
+    { rawBody: true }, // the payment webhook's signature is checked against the raw bytes
   );
 
   app.enableShutdownHooks();

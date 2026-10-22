@@ -4,6 +4,7 @@ import { GetHistoryDto } from './dto/get-history.dto';
 import { GetEnergyDto } from './dto/get-energy.dto';
 import { GetSolarProfileDto } from './dto/get-solar-profile.dto';
 import { EnergyCalculationService } from './energy-calculation.service';
+import { assertDeviceEnabled } from '../access/access.service';
 
 const BUCKET_INTERVAL_SQL: Record<string, string> = {
     '1m': '1 minute',
@@ -45,6 +46,7 @@ export class AnalyticsService {
                 message: `Device with ID '${deviceId}' not found`,
             });
         }
+        assertDeviceEnabled(device, role);
 
         const key = interval || '5m';
         const bucketSql = BUCKET_INTERVAL_SQL[key];
@@ -146,6 +148,7 @@ export class AnalyticsService {
                 message: `Device with ID '${deviceId}' not found`,
             });
         }
+        assertDeviceEnabled(device, role);
 
         const bucketInterval = type === 'hourly' ? '1 hour' : type === 'monthly' ? '1 month' : '1 day';
 
@@ -176,6 +179,7 @@ export class AnalyticsService {
                 message: `Device with ID '${deviceId}' not found`,
             });
         }
+        assertDeviceEnabled(device, role);
 
         const bucketInterval = type === 'monthly' ? '1 month' : type === 'daily' ? '1 day' : '1 hour';
 

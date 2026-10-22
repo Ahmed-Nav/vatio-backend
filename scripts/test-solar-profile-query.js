@@ -5,6 +5,7 @@ const { PrismaPg } = require('@prisma/adapter-pg');
 
 const connectionString = process.env.DATABASE_URL;
 const pool = new Pool({ connectionString });
+
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
@@ -15,7 +16,7 @@ async function run() {
     const end = new Date('2026-10-13T23:59:59Z');
     const bucketInterval = '1 day';
 
-    console.log(`Querying solar profile for ${deviceId} from ${start.toISOString()} to ${end.toISOString()} with ${bucketInterval}...`);
+   console.log(`Querying solar profile for ${deviceId} from ${start.toISOString()} to ${end.toISOString()} with ${bucketInterval}...`);
 
     // Let's test the exact query from EnergyCalculationService
     const results = await prisma.$queryRawUnsafe(`
@@ -46,7 +47,9 @@ async function run() {
               export_val,
               LAG(import_val) OVER (ORDER BY "timestamp") AS prev_import,
               LAG(export_val) OVER (ORDER BY "timestamp") AS prev_export
-          FROM readings
+          FROM readings 
+
+         
       ),
       deltas AS (
           SELECT
